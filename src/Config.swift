@@ -331,7 +331,9 @@ public class AppConfig: Codable {
     }
 
     public func currentKey() -> String {
-        return apiKeys[selectedProvider.rawValue]?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let direct = apiKeys[selectedProvider.rawValue]?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if !direct.isEmpty { return direct }
+        return vaultKey(for: selectedProvider)
     }
 
     public func currentModel() -> String {
@@ -340,8 +342,39 @@ public class AppConfig: Codable {
 
     public func fallbackKey() -> String? {
         guard let fb = fallbackProvider else { return nil }
-        let k = apiKeys[fb.rawValue]?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        return k.isEmpty ? nil : k
+        let direct = apiKeys[fb.rawValue]?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if !direct.isEmpty { return direct }
+        let vk = vaultKey(for: fb)
+        return vk.isEmpty ? nil : vk
+    }
+
+    public func vaultKey(for provider: AIProvider) -> String {
+        let home = FileManager.default.homeDirectoryForCurrentUser
+        let vaultURLs = [
+            home.appendingPathComponent("Downloads/Code Projects/Central_Auth_Vault/api_keys.env"),
+            home.appendingPathComponent(".config/Central_Auth_Vault/api_keys.env")
+        ]
+        let keyName: String
+        switch provider {
+        case .gemini: keyName = "GEMINI_API_KEY"
+        case .openrouter: keyName = "OPENROUTER_API_KEY"
+        case .groq: keyName = "GROQ_API_KEY"
+        case .openai: keyName = "OPENAI_API_KEY"
+        }
+
+        for url in vaultURLs {
+            if let content = try? String(contentsOf: url, encoding: .utf8) {
+                for line in content.components(separatedBy: .newlines) {
+                    let trimmed = line.trimmingCharacters(in: .whitespaces)
+                    if trimmed.hasPrefix(keyName + "=") {
+                        let val = String(trimmed.dropFirst(keyName.count + 1))
+                            .trimmingCharacters(in: CharacterSet(charactersIn: "\"' \t"))
+                        if !val.isEmpty { return val }
+                    }
+                }
+            }
+        }
+        return ""
     }
 
     public func activeFallbackModel() -> String {
