@@ -442,7 +442,7 @@ public class ExplanationPopoverWindow: NSPanel, WKNavigationDelegate, WKScriptMe
             item.className = 'doubt-item';
             item.innerHTML = `
                 <div class="doubt-query-bubble">❓ “${escapeHtml(text)}”</div>
-                <div id="doubtPending" class="doubt-reply-box"><span class="spinner-inline"></span> 🌐 Researching internet & reasoning...</div>
+                <div id="doubtPending" class="doubt-reply-box"><span class="spinner-inline"></span> 💡 Thinking & analyzing...</div>
             `;
             thread.appendChild(item);
 

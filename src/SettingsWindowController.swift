@@ -30,7 +30,6 @@ public class SettingsWindowController: NSWindowController, NSTextViewDelegate {
 
     // Four-Finger Web & Universal Tab
     private var enableFourFingerCheckbox: NSButton!
-    private var enableInternetSearchCheckbox: NSButton!
     private var fourFingerSystemPromptView: NSTextView!
     private var fourFingerTemplatePromptView: NSTextView!
 
@@ -275,12 +274,12 @@ public class SettingsWindowController: NSWindowController, NSTextViewDelegate {
         let view = NSView(frame: frame)
 
         // 1. Header & Description
-        let headerLabel = createLabel(text: "🖐️ Four-Finger Tap & Universal Web Lookup", frame: NSRect(x: 20, y: 405, width: 450, height: 22), bold: true)
+        let headerLabel = createLabel(text: "🖐️ Four-Finger Tap & Universal Lookup", frame: NSRect(x: 20, y: 405, width: 450, height: 22), bold: true)
         headerLabel.font = NSFont.systemFont(ofSize: 14, weight: .bold)
         view.addSubview(headerLabel)
 
         let descLabel = createLabel(
-            text: "Highlight any word, phrase, or sentence in Chrome, Safari, or anywhere on macOS and tap 4 fingers to get its meaning and real-world context from the internet.",
+            text: "Highlight any word, phrase, or sentence in Chrome, Safari, or anywhere on macOS and tap 4 fingers to get its meaning and real-world context instantly via AI.",
             frame: NSRect(x: 20, y: 365, width: 540, height: 35),
             bold: false
         )
@@ -288,18 +287,14 @@ public class SettingsWindowController: NSWindowController, NSTextViewDelegate {
         descLabel.textColor = NSColor.secondaryLabelColor
         view.addSubview(descLabel)
 
-        // 2. Gesture & Internet Checkboxes
+        // 2. Gesture Checkbox
         enableFourFingerCheckbox = NSButton(checkboxWithTitle: "Enable Four-Finger Tap gesture on trackpad", target: nil, action: nil)
-        enableFourFingerCheckbox.frame = NSRect(x: 20, y: 338, width: 380, height: 20)
+        enableFourFingerCheckbox.frame = NSRect(x: 20, y: 335, width: 380, height: 20)
         view.addSubview(enableFourFingerCheckbox)
-
-        enableInternetSearchCheckbox = NSButton(checkboxWithTitle: "Include live internet knowledge & encyclopedic research", target: nil, action: nil)
-        enableInternetSearchCheckbox.frame = NSRect(x: 20, y: 314, width: 420, height: 20)
-        view.addSubview(enableInternetSearchCheckbox)
 
         let hotkeyHint = createLabel(
             text: "💡 Shortcut alternative: ⌥⇧ Space (Option + Shift + Space) also triggers this instantly.",
-            frame: NSRect(x: 20, y: 290, width: 530, height: 18),
+            frame: NSRect(x: 20, y: 308, width: 530, height: 18),
             bold: false
         )
         hotkeyHint.font = NSFont.systemFont(ofSize: 11, weight: .medium)
@@ -307,14 +302,14 @@ public class SettingsWindowController: NSWindowController, NSTextViewDelegate {
         view.addSubview(hotkeyHint)
 
         // 3. System Prompt Section
-        let sysLabel = createLabel(text: "Four-Finger System Prompt (Instructions for AI):", frame: NSRect(x: 20, y: 262, width: 450, height: 18), bold: true)
+        let sysLabel = createLabel(text: "Four-Finger System Prompt (Instructions for AI):", frame: NSRect(x: 20, y: 275, width: 450, height: 18), bold: true)
         view.addSubview(sysLabel)
 
-        let sysScroll = NSScrollView(frame: NSRect(x: 20, y: 172, width: 540, height: 86))
+        let sysScroll = NSScrollView(frame: NSRect(x: 20, y: 180, width: 540, height: 90))
         sysScroll.hasVerticalScroller = true
         sysScroll.borderType = .bezelBorder
 
-        fourFingerSystemPromptView = NSTextView(frame: NSRect(x: 0, y: 0, width: 540, height: 86))
+        fourFingerSystemPromptView = NSTextView(frame: NSRect(x: 0, y: 0, width: 540, height: 90))
         fourFingerSystemPromptView.autoresizingMask = [.width]
         fourFingerSystemPromptView.isRichText = false
         fourFingerSystemPromptView.font = NSFont.monospacedSystemFont(ofSize: 11, weight: .regular)
@@ -322,14 +317,14 @@ public class SettingsWindowController: NSWindowController, NSTextViewDelegate {
         view.addSubview(sysScroll)
 
         // 4. Prompt Template Section
-        let templateLabel = createLabel(text: "Four-Finger Prompt Template (Variables: {selection}, {internet_context}):", frame: NSRect(x: 20, y: 145, width: 530, height: 18), bold: true)
+        let templateLabel = createLabel(text: "Four-Finger Prompt Template (Variable: {selection}):", frame: NSRect(x: 20, y: 150, width: 530, height: 18), bold: true)
         view.addSubview(templateLabel)
 
-        let templateScroll = NSScrollView(frame: NSRect(x: 20, y: 55, width: 540, height: 86))
+        let templateScroll = NSScrollView(frame: NSRect(x: 20, y: 55, width: 540, height: 90))
         templateScroll.hasVerticalScroller = true
         templateScroll.borderType = .bezelBorder
 
-        fourFingerTemplatePromptView = NSTextView(frame: NSRect(x: 0, y: 0, width: 540, height: 86))
+        fourFingerTemplatePromptView = NSTextView(frame: NSRect(x: 0, y: 0, width: 540, height: 90))
         fourFingerTemplatePromptView.autoresizingMask = [.width]
         fourFingerTemplatePromptView.isRichText = false
         fourFingerTemplatePromptView.font = NSFont.monospacedSystemFont(ofSize: 11, weight: .regular)
@@ -369,7 +364,7 @@ public class SettingsWindowController: NSWindowController, NSTextViewDelegate {
         let boxView = NSView(frame: shortcutBox.contentView!.bounds)
 
         let scDesc = createLabel(
-            text: "• ⌥ Space (Option + Space): Explains highlighted text with PDF page context.\n• ⌥⇧ Space (Option + Shift + Space): Universal 4-finger web & internet lookup.\n• Trackpad: Highlight a sentence and tap 4 fingers anywhere on your Mac.\n• 📌 Pin: Keeps the card anchored at a fixed position while reading.",
+            text: "• ⌥ Space (Option + Space): Explains highlighted text with PDF page context.\n• ⌥⇧ Space (Option + Shift + Space): Universal 4-finger AI lookup.\n• Trackpad: Highlight a sentence and tap 4 fingers anywhere on your Mac.\n• 📌 Pin: Keeps the card anchored at a fixed position while reading.",
             frame: NSRect(x: 12, y: 12, width: 500, height: 95),
             bold: false
         )
@@ -442,7 +437,6 @@ public class SettingsWindowController: NSWindowController, NSTextViewDelegate {
 
         // Four-Finger tab values
         enableFourFingerCheckbox.state = config.enableFourFingerTap ? .on : .off
-        enableInternetSearchCheckbox.state = config.enableInternetSearchForFourFinger ? .on : .off
         fourFingerSystemPromptView.string = config.activeFourFingerSystemPrompt()
         fourFingerTemplatePromptView.string = config.activeFourFingerPromptTemplate()
 
@@ -664,7 +658,6 @@ public class SettingsWindowController: NSWindowController, NSTextViewDelegate {
 
         // Save Four-Finger tab values
         config.enableFourFingerTap = (enableFourFingerCheckbox.state == .on)
-        config.enableInternetSearchForFourFinger = (enableInternetSearchCheckbox.state == .on)
         config.fourFingerSystemPrompt = fourFingerSystemPromptView.string
         config.fourFingerPromptTemplate = fourFingerTemplatePromptView.string
 

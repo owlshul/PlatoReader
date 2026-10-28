@@ -304,12 +304,12 @@ public class AIService {
         )
     }
 
-    // MARK: - Four-Finger Universal Internet Meaning (Strictly Highlighted Text Only)
+    // MARK: - Four-Finger Universal Meaning (Pure AI Knowledge, Strictly Highlighted Text Only)
     public func explainFourFingerSelection(
         selection: String,
         appName: String?,
         config: AppConfig,
-        completion: @escaping (Result<(text: String, fallbackUsed: String?, hasWebSearch: Bool), AIServiceError>) -> Void
+        completion: @escaping (Result<(text: String, fallbackUsed: String?), AIServiceError>) -> Void
     ) {
         let primaryKey = config.currentKey().isEmpty ? (config.fallbackKey() ?? "") : config.currentKey()
         let primaryProvider = config.currentKey().isEmpty ? (config.fallbackProvider ?? config.selectedProvider) : config.selectedProvider
@@ -320,53 +320,31 @@ public class AIService {
             return
         }
 
-        // Asynchronously search internet if enabled
-        let doWebSearch = config.enableInternetSearchForFourFinger
-        let searchWork: (@escaping (String?) -> Void) -> Void = { handler in
-            if doWebSearch {
-                WebSearchHelper.shared.search(query: selection, subjectHint: appName) { res in
-                    handler(res)
-                }
-            } else {
-                handler(nil)
-            }
-        }
+        let userPrompt = config.activeFourFingerPromptTemplate()
+            .replacingOccurrences(of: "{selection}", with: selection)
+            .replacingOccurrences(of: "{internet_context}", with: "")
 
-        searchWork { [weak self] webResult in
-            guard let self = self else { return }
+        let systemPrompt = config.activeFourFingerSystemPrompt()
 
-            let webContextStr = webResult ?? ""
-            let userPrompt = config.activeFourFingerPromptTemplate()
-                .replacingOccurrences(of: "{selection}", with: selection)
-                .replacingOccurrences(of: "{internet_context}", with: webContextStr.isEmpty ? "" : "\n\(webContextStr)\n")
-
-            let systemPrompt = config.activeFourFingerSystemPrompt()
-
-            self.executeWithFallback(
-                primaryProvider: primaryProvider,
-                primaryModel: primaryModel,
-                primaryKey: primaryKey,
-                config: config,
-                systemPrompt: systemPrompt,
-                userPrompt: userPrompt,
-                enableGoogleSearch: (primaryProvider == .gemini)
-            ) { result in
-                switch result {
-                case .success(let res):
-                    var text = res.text
-                    let hadWeb = (webResult != nil && !webResult!.isEmpty)
-                    if hadWeb {
-                        text += "\n\n<div class=\"doubt-source-tag\">🌐 Grounded with live internet research & AI intelligence</div>"
-                    }
-                    completion(.success((text: text, fallbackUsed: res.fallbackUsed, hasWebSearch: hadWeb)))
-                case .failure(let error):
-                    completion(.failure(error))
-                }
+        self.executeWithFallback(
+            primaryProvider: primaryProvider,
+            primaryModel: primaryModel,
+            primaryKey: primaryKey,
+            config: config,
+            systemPrompt: systemPrompt,
+            userPrompt: userPrompt,
+            enableGoogleSearch: false
+        ) { result in
+            switch result {
+            case .success(let res):
+                completion(.success((text: res.text, fallbackUsed: res.fallbackUsed)))
+            case .failure(let error):
+                completion(.failure(error))
             }
         }
     }
 
-    // MARK: - Answer Doubt (Intellectual Cross-Questioning & Live Internet Research)
+    // MARK: - Answer Doubt (Intellectual Cross-Questioning via Deep AI Knowledge)
     public func answerDoubt(
         selection: String,
         docName: String? = nil,
@@ -387,78 +365,63 @@ public class AIService {
 
         let cleanContext = pageContext?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
 
-        // 1. Asynchronously fetch live internet & encyclopedia research
-        WebSearchHelper.shared.search(query: doubt, subjectHint: docName) { [weak self] webResult in
-            guard let self = self else { return }
+        let systemPrompt = """
+        You are an insightful intellectual reading companion, mentor, and scholar.
+        The reader has highlighted a passage in their reading and asked a follow-up doubt, question, or cross-examination.
 
-            let systemPrompt = """
-            You are an insightful intellectual reading companion, mentor, and scholar.
-            The reader has highlighted a passage in their reading and asked a follow-up doubt, question, or cross-examination.
+        CRITICAL GUIDELINES:
+        1. FULL INTELLECTUAL FREEDOM & WORLD KNOWLEDGE:
+           Do NOT restrict yourself to only the text visible on the page. Use your deep knowledge of philosophy, history, science, literature, human nature, and broader ideas to give an intellectually rich, complete answer.
+        2. EXPLAIN THE "WHY" & BROADER CONTEXT:
+           If the reader asks why an author claims something, who a person is, what a concept means, or what historical/philosophical context shaped this thought, explain it thoroughly, clearly, and engagingly.
+        3. GROUND IN THE PASSAGE:
+           Tie your explanation back to the passage being read.
+        4. FORMAT & TONE:
+           Thoughtful, direct, conversational, and lucid (like an erudite conversation or a brilliant Redditor explaining complex ideas simply without dumbing them down). Avoid boilerplate openings ("Great question!", "Certainly!", etc.).
+        """
 
-            CRITICAL GUIDELINES:
-            1. FULL INTELLECTUAL FREEDOM & WORLD KNOWLEDGE:
-               Do NOT restrict yourself to only the text visible on the page. Use your deep knowledge of philosophy, history, science, literature, human nature, and broader ideas to give an intellectually rich, complete answer.
-            2. EXPLAIN THE "WHY" & BROADER CONTEXT:
-               If the reader asks why an author claims something, who a person is, what a concept means, or what historical/philosophical context shaped this thought, explain it thoroughly, clearly, and engagingly.
-            3. GROUND IN THE PASSAGE & LIVE RESEARCH:
-               Tie your explanation back to the passage being read. If live internet research / encyclopedia context is provided below, incorporate its factual nuances seamlessly.
-            4. FORMAT & TONE:
-               Thoughtful, direct, conversational, and lucid (like an erudite conversation or a brilliant Redditor explaining complex ideas simply without dumbing them down). Avoid boilerplate openings ("Great question!", "Certainly!", etc.).
-            """
+        var userPrompt = """
+        Original Passage:
+        \"\"\"\(selection)\"\"\"
 
-            var userPrompt = """
-            Original Passage:
-            \"\"\"\(selection)\"\"\"
+        Previous Explanation:
+        \"\"\"\(previousExplanation)\"\"\"
+        """
 
-            Previous Explanation:
-            \"\"\"\(previousExplanation)\"\"\"
-            """
-
-            if !cleanContext.isEmpty {
-                userPrompt += """
-
-                Surrounding Page Context:
-                \"\"\"\(cleanContext)\"\"\"
-                """
-            }
-
-            if let web = webResult, !web.isEmpty {
-                userPrompt += """
-
-                \(web)
-                """
-            }
-
+        if !cleanContext.isEmpty {
             userPrompt += """
 
-            Reader's Doubt / Cross-Question:
-            \"\"\"\(doubt)\"\"\"
-
-            Answer the reader's doubt directly, combining your intelligence, document context, and internet research:
+            Surrounding Page Context:
+            \"\"\"\(cleanContext)\"\"\"
             """
+        }
 
-            self.executeWithFallback(
-                primaryProvider: primaryProvider,
-                primaryModel: primaryModel,
-                primaryKey: primaryKey,
-                config: config,
-                systemPrompt: systemPrompt,
-                userPrompt: userPrompt,
-                enableGoogleSearch: (primaryProvider == .gemini)
-            ) { result in
-                switch result {
-                case .success(let res):
-                    var text = res.text
-                    if webResult != nil && !webResult!.isEmpty {
-                        text += "\n\n<div class=\"doubt-source-tag\">🌐 Grounded with live internet research & AI intelligence</div>"
-                    }
-                    if let fb = res.fallbackUsed {
-                        text += "\n\n*(Answered via fallback: \(fb))*"
-                    }
-                    completion(.success(text))
-                case .failure(let error):
-                    completion(.failure(error))
+        userPrompt += """
+
+        Reader's Doubt / Cross-Question:
+        \"\"\"\(doubt)\"\"\"
+
+        Answer the reader's doubt directly, combining your intelligence and document context:
+        """
+
+        self.executeWithFallback(
+            primaryProvider: primaryProvider,
+            primaryModel: primaryModel,
+            primaryKey: primaryKey,
+            config: config,
+            systemPrompt: systemPrompt,
+            userPrompt: userPrompt,
+            enableGoogleSearch: false
+        ) { result in
+            switch result {
+            case .success(let res):
+                var text = res.text
+                if let fb = res.fallbackUsed {
+                    text += "\n\n*(Answered via fallback: \(fb))*"
                 }
+                completion(.success(text))
+            case .failure(let error):
+                completion(.failure(error))
             }
         }
     }

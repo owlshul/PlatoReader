@@ -110,7 +110,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, FloatingPillDelegate, Explan
         explainItem.target = self
         menu.addItem(explainItem)
 
-        let fourFingerItem = NSMenuItem(title: "Explain Selection (Internet / 4-Finger)", action: #selector(triggerFourFingerManually), keyEquivalent: "$")
+        let fourFingerItem = NSMenuItem(title: "Explain Selection (4-Finger Universal)", action: #selector(triggerFourFingerManually), keyEquivalent: "$")
         fourFingerItem.keyEquivalentModifierMask = [.option, .shift]
         fourFingerItem.target = self
         menu.addItem(fourFingerItem)
@@ -368,7 +368,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, FloatingPillDelegate, Explan
             pageDisplay: "🖐️ 4-Finger Meaning",
             modelName: modelName,
             near: selection.bounds,
-            initialStatus: "🌐 Searching internet & explaining..."
+            initialStatus: "⚡ Explaining with AI..."
         )
 
         // 2. Perform four-finger web explanation asynchronously in background

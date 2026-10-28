@@ -11,7 +11,7 @@ Whenever you highlight a sentence anywhere on your Mac, PlatoReader summons inst
 ### 1. 🖐️ Four-Finger Tap Universal Web & Browser Lookup (New!)
 - **Trackpad Gesture**: Highlight any word, sentence, or phrase in **Safari, Chrome, Arc, or any app** and simply **tap 4 fingers** together on your trackpad.
 - **Privacy-First Architecture**: Outside Preview, PlatoReader **only reads your highlighted text selection**. It does **NOT** access, scrape, or read the rest of your browser window, background tabs, or web page content.
-- **Live Internet Research**: Automatically searches online encyclopedias and internet knowledge to ground explanations in real-world context.
+- **Instant AI Intelligence**: Uses the LLM's vast knowledge base to explain the meaning, philosophical depth, and context with zero search latency.
 - **Customizable Four-Finger Prompt**: Personalize the prompt and template in **Preferences → 🖐️ 4-Finger Tap & Web**.
 - **Keyboard Shortcut Alternative**: Press **`⌥ ⇧ Space`** (Option + Shift + Space) to trigger universal lookup anytime without a trackpad.
 
