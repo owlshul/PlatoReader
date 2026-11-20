@@ -28,16 +28,33 @@ public class SettingsWindowController: NSWindowController, NSTextViewDelegate {
     private var systemPromptView: NSTextView!
     private var templatePromptView: NSTextView!
 
-    // Four-Finger Web & Universal Tab
-    private var enableFourFingerCheckbox: NSButton!
+    // Gestures & Shortcuts UI
+    private var gesturePopUp: NSPopUpButton!
+    private var universalShortcutPopUp: NSPopUpButton!
+    private var recordUniversalButton: NSButton!
+    private var resetUniversalButton: NSButton!
+    private var tempUniversalShortcut: ShortcutConfig!
+
     private var fourFingerSystemPromptView: NSTextView!
     private var fourFingerTemplatePromptView: NSTextView!
 
     // Behavior tab
     private var enablePillCheckbox: NSButton!
     private var enableContextCheckbox: NSButton!
+    private var contextShortcutPopUp: NSPopUpButton!
+    private var recordContextButton: NSButton!
+    private var resetContextButton: NSButton!
+    private var tempContextShortcut: ShortcutConfig!
     private var permissionStatusLabel: NSTextField!
     private var openPermissionButton: NSButton!
+
+    // Interactive Key Recorder
+    private enum ShortcutTarget {
+        case universal
+        case context
+    }
+    private var activeRecordingTarget: ShortcutTarget? = nil
+    private var localKeyMonitor: Any? = nil
 
     private var tabView: NSTabView!
 
@@ -83,9 +100,9 @@ public class SettingsWindowController: NSWindowController, NSTextViewDelegate {
         promptTab.view = createPromptTabView(frame: tabView.bounds)
         tabView.addTabViewItem(promptTab)
 
-        // 3. Tab Four-Finger Tap & Web
+        // 3. Tab Gestures & Shortcuts
         let fourFingerTab = NSTabViewItem(identifier: "fourfinger")
-        fourFingerTab.label = "🖐️ 4-Finger Tap & Web"
+        fourFingerTab.label = "🖐️ Gestures & Shortcuts"
         fourFingerTab.view = createFourFingerTabView(frame: tabView.bounds)
         tabView.addTabViewItem(fourFingerTab)
 
@@ -269,69 +286,92 @@ public class SettingsWindowController: NSWindowController, NSTextViewDelegate {
         return view
     }
 
-    // MARK: - Four-Finger Universal Web Lookup Tab Creation
+    // MARK: - Gestures & Universal Web Lookup Tab Creation
     private func createFourFingerTabView(frame: NSRect) -> NSView {
         let view = NSView(frame: frame)
 
         // 1. Header & Description
-        let headerLabel = createLabel(text: "🖐️ Four-Finger Tap & Universal Lookup", frame: NSRect(x: 20, y: 405, width: 450, height: 22), bold: true)
+        let headerLabel = createLabel(text: "🖐️ 3/4-Finger Tap Gesture & Universal Lookup", frame: NSRect(x: 20, y: 412, width: 540, height: 22), bold: true)
         headerLabel.font = NSFont.systemFont(ofSize: 14, weight: .bold)
         view.addSubview(headerLabel)
 
         let descLabel = createLabel(
-            text: "Highlight any word, phrase, or sentence in Chrome, Safari, or anywhere on macOS and tap 4 fingers to get its meaning and real-world context instantly via AI.",
-            frame: NSRect(x: 20, y: 365, width: 540, height: 35),
+            text: "Highlight text in Chrome, Safari, Notes, or anywhere on macOS and tap with 3 or 4 fingers (or press your shortcut) to explain its meaning and real-world context with zero latency.",
+            frame: NSRect(x: 20, y: 382, width: 550, height: 28),
             bold: false
         )
         descLabel.font = NSFont.systemFont(ofSize: 11)
         descLabel.textColor = NSColor.secondaryLabelColor
         view.addSubview(descLabel)
 
-        // 2. Gesture Checkbox
-        enableFourFingerCheckbox = NSButton(checkboxWithTitle: "Enable Four-Finger Tap gesture on trackpad", target: nil, action: nil)
-        enableFourFingerCheckbox.frame = NSRect(x: 20, y: 335, width: 380, height: 20)
-        view.addSubview(enableFourFingerCheckbox)
+        // 2. Gesture Selector Dropdown
+        let gestureLabel = createLabel(text: "Trackpad Tap Gesture:", frame: NSRect(x: 20, y: 350, width: 145, height: 20), bold: true)
+        view.addSubview(gestureLabel)
 
-        let hotkeyHint = createLabel(
-            text: "💡 Shortcut alternative: ⌥⇧ Space (Option + Shift + Space) also triggers this instantly.",
-            frame: NSRect(x: 20, y: 308, width: 530, height: 18),
-            bold: false
-        )
-        hotkeyHint.font = NSFont.systemFont(ofSize: 11, weight: .medium)
-        hotkeyHint.textColor = NSColor.systemBlue
-        view.addSubview(hotkeyHint)
+        gesturePopUp = NSPopUpButton(frame: NSRect(x: 165, y: 347, width: 235, height: 26))
+        for mode in GestureFingerMode.allCases {
+            gesturePopUp.addItem(withTitle: mode.displayName)
+            gesturePopUp.lastItem?.representedObject = mode.rawValue
+        }
+        view.addSubview(gesturePopUp)
 
-        // 3. System Prompt Section
-        let sysLabel = createLabel(text: "Four-Finger System Prompt (Instructions for AI):", frame: NSRect(x: 20, y: 275, width: 450, height: 18), bold: true)
+        let gestureHint = createLabel(text: "Tap on trackpad triggers lookup", frame: NSRect(x: 410, y: 350, width: 170, height: 18), bold: false)
+        gestureHint.font = NSFont.systemFont(ofSize: 11)
+        gestureHint.textColor = NSColor.secondaryLabelColor
+        view.addSubview(gestureHint)
+
+        // 3. Universal Keyboard Shortcut Section
+        let shortcutLabel = createLabel(text: "Universal Shortcut:", frame: NSRect(x: 20, y: 315, width: 145, height: 20), bold: true)
+        view.addSubview(shortcutLabel)
+
+        universalShortcutPopUp = NSPopUpButton(frame: NSRect(x: 165, y: 312, width: 235, height: 26))
+        view.addSubview(universalShortcutPopUp)
+
+        recordUniversalButton = NSButton(frame: NSRect(x: 410, y: 311, width: 110, height: 26))
+        recordUniversalButton.title = "🎙️ Record Key"
+        recordUniversalButton.bezelStyle = .rounded
+        recordUniversalButton.target = self
+        recordUniversalButton.action = #selector(recordUniversalClicked)
+        view.addSubview(recordUniversalButton)
+
+        resetUniversalButton = NSButton(frame: NSRect(x: 525, y: 311, width: 55, height: 26))
+        resetUniversalButton.title = "↺ Reset"
+        resetUniversalButton.bezelStyle = .rounded
+        resetUniversalButton.target = self
+        resetUniversalButton.action = #selector(resetUniversalClicked)
+        view.addSubview(resetUniversalButton)
+
+        // 4. System Prompt Section
+        let sysLabel = createLabel(text: "System Instructions (Universal Explainer):", frame: NSRect(x: 20, y: 280, width: 450, height: 18), bold: true)
         view.addSubview(sysLabel)
 
-        let sysScroll = NSScrollView(frame: NSRect(x: 20, y: 180, width: 540, height: 90))
+        let sysScroll = NSScrollView(frame: NSRect(x: 20, y: 185, width: 550, height: 90))
         sysScroll.hasVerticalScroller = true
         sysScroll.borderType = .bezelBorder
 
-        fourFingerSystemPromptView = NSTextView(frame: NSRect(x: 0, y: 0, width: 540, height: 90))
+        fourFingerSystemPromptView = NSTextView(frame: NSRect(x: 0, y: 0, width: 550, height: 90))
         fourFingerSystemPromptView.autoresizingMask = [.width]
         fourFingerSystemPromptView.isRichText = false
         fourFingerSystemPromptView.font = NSFont.monospacedSystemFont(ofSize: 11, weight: .regular)
         sysScroll.documentView = fourFingerSystemPromptView
         view.addSubview(sysScroll)
 
-        // 4. Prompt Template Section
-        let templateLabel = createLabel(text: "Four-Finger Prompt Template (Variable: {selection}):", frame: NSRect(x: 20, y: 150, width: 530, height: 18), bold: true)
+        // 5. Prompt Template Section
+        let templateLabel = createLabel(text: "Prompt Template (Variable: {selection}):", frame: NSRect(x: 20, y: 155, width: 530, height: 18), bold: true)
         view.addSubview(templateLabel)
 
-        let templateScroll = NSScrollView(frame: NSRect(x: 20, y: 55, width: 540, height: 90))
+        let templateScroll = NSScrollView(frame: NSRect(x: 20, y: 55, width: 550, height: 95))
         templateScroll.hasVerticalScroller = true
         templateScroll.borderType = .bezelBorder
 
-        fourFingerTemplatePromptView = NSTextView(frame: NSRect(x: 0, y: 0, width: 540, height: 90))
+        fourFingerTemplatePromptView = NSTextView(frame: NSRect(x: 0, y: 0, width: 550, height: 95))
         fourFingerTemplatePromptView.autoresizingMask = [.width]
         fourFingerTemplatePromptView.isRichText = false
         fourFingerTemplatePromptView.font = NSFont.monospacedSystemFont(ofSize: 11, weight: .regular)
         templateScroll.documentView = fourFingerTemplatePromptView
         view.addSubview(templateScroll)
 
-        // 5. Reset Button & Privacy Notice
+        // 6. Reset Prompt Button & Privacy Notice
         let resetBtn = NSButton(frame: NSRect(x: 20, y: 15, width: 195, height: 26))
         resetBtn.title = "🔄 Reset Prompt to Default"
         resetBtn.bezelStyle = .rounded
@@ -339,7 +379,7 @@ public class SettingsWindowController: NSWindowController, NSTextViewDelegate {
         resetBtn.action = #selector(resetFourFingerPromptClicked)
         view.addSubview(resetBtn)
 
-        let privacyNote = createLabel(text: "🔒 Privacy: Only highlighted text is sent. Browser window contents are never accessed.", frame: NSRect(x: 225, y: 17, width: 345, height: 22), bold: false)
+        let privacyNote = createLabel(text: "🔒 Privacy: Only highlighted text is sent. Background tabs are never read.", frame: NSRect(x: 225, y: 17, width: 345, height: 22), bold: false)
         privacyNote.font = NSFont.systemFont(ofSize: 10, weight: .semibold)
         privacyNote.textColor = NSColor.secondaryLabelColor
         view.addSubview(privacyNote)
@@ -352,20 +392,42 @@ public class SettingsWindowController: NSWindowController, NSTextViewDelegate {
         let view = NSView(frame: frame)
 
         enablePillCheckbox = NSButton(checkboxWithTitle: "Show floating '💡 Explain' button above selected text in Preview", target: nil, action: nil)
-        enablePillCheckbox.frame = NSRect(x: 20, y: 390, width: 500, height: 24)
+        enablePillCheckbox.frame = NSRect(x: 20, y: 405, width: 500, height: 24)
         view.addSubview(enablePillCheckbox)
 
         enableContextCheckbox = NSButton(checkboxWithTitle: "Read surrounding page context from PDF in Preview automatically", target: nil, action: nil)
-        enableContextCheckbox.frame = NSRect(x: 20, y: 350, width: 500, height: 24)
+        enableContextCheckbox.frame = NSRect(x: 20, y: 375, width: 500, height: 24)
         view.addSubview(enableContextCheckbox)
 
-        let shortcutBox = NSBox(frame: NSRect(x: 20, y: 185, width: 530, height: 140))
-        shortcutBox.title = "Keyboard Shortcuts & Pinning"
+        // PDF Context Shortcut Configuration
+        let contextLabel = createLabel(text: "PDF Context Shortcut:", frame: NSRect(x: 20, y: 335, width: 150, height: 20), bold: true)
+        view.addSubview(contextLabel)
+
+        contextShortcutPopUp = NSPopUpButton(frame: NSRect(x: 175, y: 332, width: 225, height: 26))
+        view.addSubview(contextShortcutPopUp)
+
+        recordContextButton = NSButton(frame: NSRect(x: 410, y: 331, width: 110, height: 26))
+        recordContextButton.title = "🎙️ Record Key"
+        recordContextButton.bezelStyle = .rounded
+        recordContextButton.target = self
+        recordContextButton.action = #selector(recordContextClicked)
+        view.addSubview(recordContextButton)
+
+        resetContextButton = NSButton(frame: NSRect(x: 525, y: 331, width: 55, height: 26))
+        resetContextButton.title = "↺ Reset"
+        resetContextButton.bezelStyle = .rounded
+        resetContextButton.target = self
+        resetContextButton.action = #selector(resetContextClicked)
+        view.addSubview(resetContextButton)
+
+        // Shortcut & Gesture Reference Box
+        let shortcutBox = NSBox(frame: NSRect(x: 20, y: 160, width: 550, height: 155))
+        shortcutBox.title = "Keyboard Shortcuts & Trackpad Gestures"
         let boxView = NSView(frame: shortcutBox.contentView!.bounds)
 
         let scDesc = createLabel(
-            text: "• ⌥ Space (Option + Space): Explains highlighted text with PDF page context.\n• ⌥⇧ Space (Option + Shift + Space): Universal 4-finger AI lookup.\n• Trackpad: Highlight a sentence and tap 4 fingers anywhere on your Mac.\n• 📌 Pin: Keeps the card anchored at a fixed position while reading.",
-            frame: NSRect(x: 12, y: 12, width: 500, height: 95),
+            text: "• PDF Context Explain: Triggers explanation with surrounding page context in Preview.\n• Universal Web Lookup: Explains any highlighted word or passage across all apps.\n• Trackpad: Supports 3-finger or 4-finger tap according to your configuration.\n• Customizable Shortcuts: Use presets or click 'Record Key' to set any key combo.\n• 📌 Pin Card: Anchors the floating explanation card in place while reading.",
+            frame: NSRect(x: 12, y: 8, width: 525, height: 115),
             bold: false
         )
         scDesc.font = NSFont.systemFont(ofSize: 12)
@@ -374,14 +436,14 @@ public class SettingsWindowController: NSWindowController, NSTextViewDelegate {
         view.addSubview(shortcutBox)
 
         // Accessibility Section
-        let permBox = NSBox(frame: NSRect(x: 20, y: 45, width: 530, height: 110))
+        let permBox = NSBox(frame: NSRect(x: 20, y: 30, width: 550, height: 115))
         permBox.title = "macOS Accessibility Permission"
         let pView = NSView(frame: permBox.contentView!.bounds)
 
         permissionStatusLabel = createLabel(text: "", frame: NSRect(x: 12, y: 45, width: 300, height: 24), bold: true)
         pView.addSubview(permissionStatusLabel)
 
-        openPermissionButton = NSButton(frame: NSRect(x: 330, y: 40, width: 170, height: 30))
+        openPermissionButton = NSButton(frame: NSRect(x: 340, y: 40, width: 170, height: 30))
         openPermissionButton.title = "Open System Settings"
         openPermissionButton.bezelStyle = .rounded
         openPermissionButton.target = self
@@ -435,8 +497,20 @@ public class SettingsWindowController: NSWindowController, NSTextViewDelegate {
         systemPromptView.string = config.activeSystemPrompt()
         templatePromptView.string = config.activePromptTemplate()
 
-        // Four-Finger tab values
-        enableFourFingerCheckbox.state = config.enableFourFingerTap ? .on : .off
+        // Gestures & Shortcuts values
+        for item in gesturePopUp.itemArray {
+            if (item.representedObject as? String) == config.fingerTapMode.rawValue {
+                gesturePopUp.select(item)
+                break
+            }
+        }
+
+        tempUniversalShortcut = config.universalShortcut
+        populateShortcutPopUp(universalShortcutPopUp, current: tempUniversalShortcut, action: #selector(universalPresetChanged))
+
+        tempContextShortcut = config.contextShortcut
+        populateShortcutPopUp(contextShortcutPopUp, current: tempContextShortcut, action: #selector(contextPresetChanged))
+
         fourFingerSystemPromptView.string = config.activeFourFingerSystemPrompt()
         fourFingerTemplatePromptView.string = config.activeFourFingerPromptTemplate()
 
@@ -444,6 +518,132 @@ public class SettingsWindowController: NSWindowController, NSTextViewDelegate {
         enableContextCheckbox.state = config.enablePageContext ? .on : .off
 
         updatePermissionStatus()
+    }
+
+    // MARK: - Shortcut Management & Recording
+    private func populateShortcutPopUp(_ popUp: NSPopUpButton, current: ShortcutConfig, action: Selector) {
+        popUp.removeAllItems()
+        for p in ShortcutConfig.standardPresets {
+            popUp.addItem(withTitle: p.displayString)
+            popUp.lastItem?.representedObject = p
+        }
+        popUp.addItem(withTitle: "Custom Key Combination...")
+        popUp.lastItem?.representedObject = nil
+        popUp.target = self
+        popUp.action = action
+        syncPopUpSelection(popUp, current: current)
+    }
+
+    private func syncPopUpSelection(_ popUp: NSPopUpButton, current: ShortcutConfig) {
+        var matched = false
+        for item in popUp.itemArray {
+            if let sc = item.representedObject as? ShortcutConfig, sc.keyCode == current.keyCode && sc.modifiers == current.modifiers {
+                popUp.select(item)
+                matched = true
+                break
+            }
+        }
+        if !matched {
+            if let customItem = popUp.itemArray.last {
+                customItem.title = "Custom: \(current.displayString)"
+                popUp.select(customItem)
+            }
+        }
+    }
+
+    @objc private func universalPresetChanged() {
+        guard let item = universalShortcutPopUp.selectedItem else { return }
+        if let sc = item.representedObject as? ShortcutConfig {
+            tempUniversalShortcut = sc
+        } else {
+            startRecording(target: .universal)
+        }
+    }
+
+    @objc private func contextPresetChanged() {
+        guard let item = contextShortcutPopUp.selectedItem else { return }
+        if let sc = item.representedObject as? ShortcutConfig {
+            tempContextShortcut = sc
+        } else {
+            startRecording(target: .context)
+        }
+    }
+
+    @objc private func recordUniversalClicked() {
+        if activeRecordingTarget == .universal {
+            stopRecording()
+        } else {
+            startRecording(target: .universal)
+        }
+    }
+
+    @objc private func recordContextClicked() {
+        if activeRecordingTarget == .context {
+            stopRecording()
+        } else {
+            startRecording(target: .context)
+        }
+    }
+
+    @objc private func resetUniversalClicked() {
+        stopRecording()
+        tempUniversalShortcut = ShortcutConfig.defaultUniversal
+        syncPopUpSelection(universalShortcutPopUp, current: tempUniversalShortcut)
+    }
+
+    @objc private func resetContextClicked() {
+        stopRecording()
+        tempContextShortcut = ShortcutConfig.defaultContext
+        syncPopUpSelection(contextShortcutPopUp, current: tempContextShortcut)
+    }
+
+    private func startRecording(target: ShortcutTarget) {
+        stopRecording()
+        activeRecordingTarget = target
+
+        if target == .universal {
+            recordUniversalButton.title = "⌨️ Press Keys (Esc)"
+        } else {
+            recordContextButton.title = "⌨️ Press Keys (Esc)"
+        }
+
+        localKeyMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown]) { [weak self] event in
+            guard let self = self else { return event }
+
+            if event.keyCode == 53 { // Escape
+                self.stopRecording()
+                return nil
+            }
+
+            let cocoaMods = event.modifierFlags.intersection([.command, .option, .shift, .control])
+            if !cocoaMods.isEmpty {
+                let carbonMods = ShortcutConfig.carbonModifiers(from: cocoaMods)
+                let keyCode = UInt32(event.keyCode)
+                let display = ShortcutConfig.formatDisplayString(keyCode: keyCode, modifiers: carbonMods)
+                let newSc = ShortcutConfig(keyCode: keyCode, modifiers: carbonMods, displayString: display)
+
+                if self.activeRecordingTarget == .universal {
+                    self.tempUniversalShortcut = newSc
+                    self.syncPopUpSelection(self.universalShortcutPopUp, current: newSc)
+                } else if self.activeRecordingTarget == .context {
+                    self.tempContextShortcut = newSc
+                    self.syncPopUpSelection(self.contextShortcutPopUp, current: newSc)
+                }
+                self.stopRecording()
+                return nil
+            }
+            return event
+        }
+    }
+
+    private func stopRecording() {
+        if let m = localKeyMonitor {
+            NSEvent.removeMonitor(m)
+            localKeyMonitor = nil
+        }
+        activeRecordingTarget = nil
+        recordUniversalButton?.title = "🎙️ Record Key"
+        recordContextButton?.title = "🎙️ Record Key"
     }
 
     @objc private func resetFourFingerPromptClicked() {
@@ -651,13 +851,30 @@ public class SettingsWindowController: NSWindowController, NSTextViewDelegate {
     }
 
     @objc private func saveAndClose() {
+        stopRecording()
         saveCurrentKeyToMemory()
 
         config.enableFloatingPill = (enablePillCheckbox.state == .on)
         config.enablePageContext = (enableContextCheckbox.state == .on)
 
-        // Save Four-Finger tab values
-        config.enableFourFingerTap = (enableFourFingerCheckbox.state == .on)
+        // Save Gestures & Shortcuts
+        if let gestureRaw = gesturePopUp.selectedItem?.representedObject as? String,
+           let mode = GestureFingerMode(rawValue: gestureRaw) {
+            config.fingerTapMode = mode
+            config.enableFourFingerTap = (mode != .disabled)
+        }
+
+        if let uSc = tempUniversalShortcut {
+            config.universalShortcut = uSc
+            config.fourFingerHotkeyString = uSc.displayString
+        }
+
+        if let cSc = tempContextShortcut {
+            config.contextShortcut = cSc
+            config.hotkeyString = cSc.displayString
+        }
+
+        // Save Prompts
         config.fourFingerSystemPrompt = fourFingerSystemPromptView.string
         config.fourFingerPromptTemplate = fourFingerTemplatePromptView.string
 
@@ -672,6 +889,7 @@ public class SettingsWindowController: NSWindowController, NSTextViewDelegate {
     }
 
     @objc private func cancel() {
+        stopRecording()
         self.window?.close()
     }
 }

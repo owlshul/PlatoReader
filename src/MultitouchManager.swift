@@ -8,6 +8,20 @@ public protocol MultitouchManagerDelegate: AnyObject {
 public class MultitouchManager {
     public weak var delegate: MultitouchManagerDelegate?
     public var isEnabled: Bool = true
+    public var fingerTapMode: GestureFingerMode = .fourFingers
+
+    private func matchesFingerCount(_ count: Int) -> Bool {
+        switch fingerTapMode {
+        case .fourFingers:
+            return count == 4
+        case .threeFingers:
+            return count == 3
+        case .threeOrFour:
+            return count == 3 || count == 4
+        case .disabled:
+            return false
+        }
+    }
 
     private var handle: UnsafeMutableRawPointer?
     private var registeredDevices: [UnsafeMutableRawPointer] = []
@@ -97,10 +111,10 @@ public class MultitouchManager {
             registeredDevices.append(devRef)
         }
 
-        // Global mouse down monitor: also detect physical clicks when 4 fingers are down
+        // Global mouse down monitor: also detect physical clicks when fingers are down
         globalMouseMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown]) { [weak self] _ in
             guard let self = self, self.isEnabled else { return }
-            if self.isTracking && self.maxTouchesInGesture == 4 && self.maxMovement < 0.08 {
+            if self.isTracking && self.matchesFingerCount(self.maxTouchesInGesture) && self.maxMovement < 0.08 {
                 self.triggerFourFingerAction()
             }
         }
@@ -149,11 +163,11 @@ public class MultitouchManager {
                 isTracking = false
                 let duration = timestamp - touchStartTime
 
-                // Four finger tap qualification:
-                // 1. Peak finger count reached exactly 4
+                // Multitouch tap qualification:
+                // 1. Peak finger count matches user-configured mode (3, 4, or 3-or-4)
                 // 2. Tap duration is brief (between 40ms and 500ms)
-                // 3. Movement is minimal (< 0.08 normalized coordinates, differentiating tap from 4-finger swipe)
-                if maxTouchesInGesture == 4 && duration >= 0.04 && duration <= 0.50 && maxMovement < 0.08 {
+                // 3. Movement is minimal (< 0.08 normalized coordinates, differentiating tap from swipe)
+                if matchesFingerCount(maxTouchesInGesture) && duration >= 0.04 && duration <= 0.50 && maxMovement < 0.08 {
                     triggerFourFingerAction()
                 }
 

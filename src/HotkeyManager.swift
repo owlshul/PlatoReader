@@ -19,8 +19,18 @@ public class HotkeyManager {
 
     private var hotKeyRefNormal: EventHotKeyRef?
     private var hotKeyRefFourFinger: EventHotKeyRef?
+    private var isCarbonHandlerInstalled: Bool = false
+
+    public var universalShortcut: ShortcutConfig = .defaultUniversal
+    public var contextShortcut: ShortcutConfig = .defaultContext
 
     public init() {}
+
+    public func updateShortcuts(universal: ShortcutConfig, context: ShortcutConfig) {
+        self.universalShortcut = universal
+        self.contextShortcut = context
+        reregisterCarbonHotkeys()
+    }
 
     public func startMonitoring() {
         stopMonitoring()
@@ -81,21 +91,16 @@ public class HotkeyManager {
 
     @discardableResult
     private func handleKeyEvent(_ event: NSEvent) -> Bool {
-        let isSpace = (event.keyCode == 49)
-        let hasOption = event.modifierFlags.contains(.option)
-        let hasCmd = event.modifierFlags.contains(.command)
-        let hasShift = event.modifierFlags.contains(.shift)
-
-        // 1. Option + Shift + Space: Universal 4-Finger Internet Explain
-        if isSpace && hasOption && hasShift && !hasCmd {
+        // 1. Universal (3/4-Finger / Web) Explain Shortcut
+        if universalShortcut.matchesNSEvent(event) {
             DispatchQueue.main.async {
                 self.delegate?.didTriggerFourFingerHotkey()
             }
             return true
         }
 
-        // 2. Option + Space OR Command + Shift + E (keyCode 14): Context Explain
-        if (isSpace && hasOption && !hasCmd && !hasShift) || (event.keyCode == 14 && hasCmd && hasShift) {
+        // 2. PDF Context Explain Shortcut
+        if contextShortcut.matchesNSEvent(event) {
             DispatchQueue.main.async {
                 self.delegate?.didTriggerHotkey()
             }
@@ -106,41 +111,57 @@ public class HotkeyManager {
     }
 
     // Carbon Event Hotkeys for system-wide triggers
-    private func registerCarbonHotkeys() {
-        var eventType = EventTypeSpec()
-        eventType.eventClass = OSType(kEventClassKeyboard)
-        eventType.eventKind = OSType(kEventHotKeyPressed)
+    public func reregisterCarbonHotkeys() {
+        if let ref = hotKeyRefNormal {
+            UnregisterEventHotKey(ref)
+            hotKeyRefNormal = nil
+        }
+        if let ref = hotKeyRefFourFinger {
+            UnregisterEventHotKey(ref)
+            hotKeyRefFourFinger = nil
+        }
 
-        InstallEventHandler(GetApplicationEventTarget(), { (handlerCallRef, eventRef, userData) -> OSStatus in
-            guard let userData = userData else { return noErr }
-            let manager = Unmanaged<HotkeyManager>.fromOpaque(userData).takeUnretainedValue()
-
-            var hkID = EventHotKeyID()
-            let status = GetEventParameter(eventRef, EventParamName(kEventParamDirectObject), EventParamType(typeEventHotKeyID), nil, MemoryLayout<EventHotKeyID>.size, nil, &hkID)
-
-            if status == noErr {
-                DispatchQueue.main.async {
-                    if hkID.id == 1 {
-                        manager.delegate?.didTriggerHotkey()
-                    } else if hkID.id == 2 {
-                        manager.delegate?.didTriggerFourFingerHotkey()
-                    }
-                }
-            }
-            return noErr
-        }, 1, &eventType, Unmanaged.passUnretained(self).toOpaque(), nil)
-
-        // ID 1: Option + Space
+        // ID 1: Context Shortcut
         var hotKeyNormal = EventHotKeyID()
         hotKeyNormal.signature = OSType(0x504C544F) // 'PLTO'
         hotKeyNormal.id = 1
-        RegisterEventHotKey(49, UInt32(optionKey), hotKeyNormal, GetApplicationEventTarget(), 0, &hotKeyRefNormal)
+        RegisterEventHotKey(contextShortcut.keyCode, contextShortcut.modifiers, hotKeyNormal, GetApplicationEventTarget(), 0, &hotKeyRefNormal)
 
-        // ID 2: Option + Shift + Space
+        // ID 2: Universal Shortcut
         var hotKeyFour = EventHotKeyID()
         hotKeyFour.signature = OSType(0x504C544F) // 'PLTO'
         hotKeyFour.id = 2
-        RegisterEventHotKey(49, UInt32(optionKey | shiftKey), hotKeyFour, GetApplicationEventTarget(), 0, &hotKeyRefFourFinger)
+        RegisterEventHotKey(universalShortcut.keyCode, universalShortcut.modifiers, hotKeyFour, GetApplicationEventTarget(), 0, &hotKeyRefFourFinger)
+    }
+
+    private func registerCarbonHotkeys() {
+        if !isCarbonHandlerInstalled {
+            var eventType = EventTypeSpec()
+            eventType.eventClass = OSType(kEventClassKeyboard)
+            eventType.eventKind = OSType(kEventHotKeyPressed)
+
+            InstallEventHandler(GetApplicationEventTarget(), { (handlerCallRef, eventRef, userData) -> OSStatus in
+                guard let userData = userData else { return noErr }
+                let manager = Unmanaged<HotkeyManager>.fromOpaque(userData).takeUnretainedValue()
+
+                var hkID = EventHotKeyID()
+                let status = GetEventParameter(eventRef, EventParamName(kEventParamDirectObject), EventParamType(typeEventHotKeyID), nil, MemoryLayout<EventHotKeyID>.size, nil, &hkID)
+
+                if status == noErr {
+                    DispatchQueue.main.async {
+                        if hkID.id == 1 {
+                            manager.delegate?.didTriggerHotkey()
+                        } else if hkID.id == 2 {
+                            manager.delegate?.didTriggerFourFingerHotkey()
+                        }
+                    }
+                }
+                return noErr
+            }, 1, &eventType, Unmanaged.passUnretained(self).toOpaque(), nil)
+            isCarbonHandlerInstalled = true
+        }
+
+        reregisterCarbonHotkeys()
     }
 
     deinit {

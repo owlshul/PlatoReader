@@ -38,12 +38,14 @@ class AppDelegate: NSObject, NSApplicationDelegate, FloatingPillDelegate, Explan
         // Setup Hotkey and Event Monitors
         hotkeyManager = HotkeyManager()
         hotkeyManager.delegate = self
+        hotkeyManager.updateShortcuts(universal: config.universalShortcut, context: config.contextShortcut)
         hotkeyManager.startMonitoring()
 
-        // Setup Multitouch Trackpad Monitor for 4-Finger Tap
+        // Setup Multitouch Trackpad Monitor for 3/4-Finger Tap
         multitouchManager = MultitouchManager()
         multitouchManager.delegate = self
-        multitouchManager.isEnabled = config.enableFourFingerTap
+        multitouchManager.fingerTapMode = config.fingerTapMode
+        multitouchManager.isEnabled = (config.fingerTapMode != .disabled)
         multitouchManager.startMonitoring()
 
         // Check Permissions and First Run
@@ -105,13 +107,14 @@ class AppDelegate: NSObject, NSApplicationDelegate, FloatingPillDelegate, Explan
 
         menu.addItem(NSMenuItem.separator())
 
-        let explainItem = NSMenuItem(title: "Explain Selection (PDF Context)", action: #selector(triggerExplainManually), keyEquivalent: " ")
-        explainItem.keyEquivalentModifierMask = .option
+        let contextShortStr = config.contextShortcut.displayString.components(separatedBy: " (").first ?? "⌥ Space"
+        let universalShortStr = config.universalShortcut.displayString.components(separatedBy: " (").first ?? "⌥⇧ Space"
+
+        let explainItem = NSMenuItem(title: "Explain Selection (PDF Context) [\(contextShortStr)]", action: #selector(triggerExplainManually), keyEquivalent: "")
         explainItem.target = self
         menu.addItem(explainItem)
 
-        let fourFingerItem = NSMenuItem(title: "Explain Selection (4-Finger Universal)", action: #selector(triggerFourFingerManually), keyEquivalent: "$")
-        fourFingerItem.keyEquivalentModifierMask = [.option, .shift]
+        let fourFingerItem = NSMenuItem(title: "Explain Selection (Universal) [\(universalShortStr)]", action: #selector(triggerFourFingerManually), keyEquivalent: "")
         fourFingerItem.target = self
         menu.addItem(fourFingerItem)
 
@@ -225,9 +228,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, FloatingPillDelegate, Explan
                 executeFourFingerExplanation(for: sel)
             }
         } else {
+            let shortcutHint = config.contextShortcut.displayString.components(separatedBy: " (").first ?? "⌥ Space"
             let alert = NSAlert()
             alert.messageText = "No Text Highlighted"
-            alert.informativeText = "Highlight a sentence in Preview or any document, then press ⌥ Space."
+            alert.informativeText = "Highlight a sentence in Preview or any document, then press \(shortcutHint)."
             alert.alertStyle = .informational
             alert.addButton(withTitle: "OK")
             alert.runModal()
@@ -241,9 +245,17 @@ class AppDelegate: NSObject, NSApplicationDelegate, FloatingPillDelegate, Explan
         } else if let last = lastSelection {
             executeFourFingerExplanation(for: last)
         } else {
+            let shortcutHint = config.universalShortcut.displayString.components(separatedBy: " (").first ?? "⌥⇧ Space"
+            let gestureName: String
+            switch config.fingerTapMode {
+            case .threeFingers: gestureName = "tap 3 fingers"
+            case .fourFingers: gestureName = "tap 4 fingers"
+            case .threeOrFour: gestureName = "tap 3 or 4 fingers"
+            case .disabled: gestureName = "press \(shortcutHint)"
+            }
             let alert = NSAlert()
             alert.messageText = "No Text Highlighted"
-            alert.informativeText = "Highlight any word or sentence in Safari, Chrome, or any application, then tap 4 fingers or press ⌥⇧ Space."
+            alert.informativeText = "Highlight any word or sentence in Safari, Chrome, or any application, then \(gestureName) or press \(shortcutHint)."
             alert.alertStyle = .informational
             alert.addButton(withTitle: "OK")
             alert.runModal()
@@ -456,7 +468,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, FloatingPillDelegate, Explan
     // MARK: - SettingsDelegate
     func didUpdateConfig(_ updatedConfig: AppConfig) {
         self.config = updatedConfig
-        multitouchManager.isEnabled = updatedConfig.enableFourFingerTap
+        multitouchManager.fingerTapMode = updatedConfig.fingerTapMode
+        multitouchManager.isEnabled = (updatedConfig.fingerTapMode != .disabled)
+        hotkeyManager.updateShortcuts(universal: updatedConfig.universalShortcut, context: updatedConfig.contextShortcut)
         updateStatusMenu()
     }
 }

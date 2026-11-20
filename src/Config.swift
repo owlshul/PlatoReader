@@ -1,4 +1,123 @@
 import Foundation
+import Carbon
+import Cocoa
+
+public enum GestureFingerMode: String, CaseIterable, Codable {
+    case fourFingers = "four"
+    case threeFingers = "three"
+    case threeOrFour = "three_or_four"
+    case disabled = "disabled"
+
+    public var displayName: String {
+        switch self {
+        case .fourFingers: return "4 Fingers Tap (Default)"
+        case .threeFingers: return "3 Fingers Tap"
+        case .threeOrFour: return "3 or 4 Fingers Tap (Either)"
+        case .disabled: return "Disabled (No Trackpad Gesture)"
+        }
+    }
+}
+
+public struct ShortcutConfig: Codable, Equatable {
+    public var keyCode: UInt32
+    public var modifiers: UInt32 // Carbon modifiers: optionKey, shiftKey, cmdKey, controlKey
+    public var displayString: String
+
+    public init(keyCode: UInt32, modifiers: UInt32, displayString: String) {
+        self.keyCode = keyCode
+        self.modifiers = modifiers
+        self.displayString = displayString
+    }
+
+    public static let defaultUniversal = ShortcutConfig(
+        keyCode: 49,
+        modifiers: UInt32(optionKey | shiftKey),
+        displayString: "⌥⇧ Space (Option + Shift + Space)"
+    )
+
+    public static let defaultContext = ShortcutConfig(
+        keyCode: 49,
+        modifiers: UInt32(optionKey),
+        displayString: "⌥ Space (Option + Space)"
+    )
+
+    public static let keyCodeNames: [UInt32: String] = [
+        49: "Space",
+        36: "Return",
+        48: "Tab",
+        53: "Escape",
+        0: "A", 1: "S", 2: "D", 3: "F", 4: "H", 5: "G", 6: "Z", 7: "X", 8: "C", 9: "V",
+        11: "B", 12: "Q", 13: "W", 14: "E", 15: "R", 16: "Y", 17: "T", 31: "O", 32: "U",
+        34: "I", 35: "P", 37: "L", 38: "J", 40: "K", 45: "N", 46: "M",
+        18: "1", 19: "2", 20: "3", 21: "4", 23: "5", 22: "6", 26: "7", 28: "8", 25: "9", 29: "0",
+        123: "←", 124: "→", 125: "↓", 126: "↑",
+        43: ",", 47: ".", 44: "/", 41: ";", 39: "'", 33: "[", 30: "]", 42: "\\", 50: "`", 27: "-", 24: "="
+    ]
+
+    public static func carbonModifiers(from cocoaFlags: NSEvent.ModifierFlags) -> UInt32 {
+        var carbon: UInt32 = 0
+        if cocoaFlags.contains(.command) { carbon |= UInt32(cmdKey) }
+        if cocoaFlags.contains(.option) { carbon |= UInt32(optionKey) }
+        if cocoaFlags.contains(.shift) { carbon |= UInt32(shiftKey) }
+        if cocoaFlags.contains(.control) { carbon |= UInt32(controlKey) }
+        return carbon
+    }
+
+    public static func formatDisplayString(keyCode: UInt32, modifiers: UInt32) -> String {
+        var symbols: [String] = []
+        var words: [String] = []
+        if (modifiers & UInt32(controlKey)) != 0 { symbols.append("⌃"); words.append("Control") }
+        if (modifiers & UInt32(optionKey)) != 0 { symbols.append("⌥"); words.append("Option") }
+        if (modifiers & UInt32(shiftKey)) != 0 { symbols.append("⇧"); words.append("Shift") }
+        if (modifiers & UInt32(cmdKey)) != 0 { symbols.append("⌘"); words.append("Command") }
+
+        let keyName = keyCodeNames[keyCode] ?? "Key(\(keyCode))"
+        words.append(keyName)
+        let symStr = symbols.joined()
+        let wordStr = words.joined(separator: " + ")
+        if symStr.isEmpty {
+            return keyName
+        } else {
+            return "\(symStr) \(keyName) (\(wordStr))"
+        }
+    }
+
+    public func matchesNSEvent(_ event: NSEvent) -> Bool {
+        guard UInt32(event.keyCode) == self.keyCode else { return false }
+        let hasOpt = event.modifierFlags.contains(.option)
+        let hasShift = event.modifierFlags.contains(.shift)
+        let hasCmd = event.modifierFlags.contains(.command)
+        let hasCtrl = event.modifierFlags.contains(.control)
+
+        let reqOpt = (modifiers & UInt32(optionKey)) != 0
+        let reqShift = (modifiers & UInt32(shiftKey)) != 0
+        let reqCmd = (modifiers & UInt32(cmdKey)) != 0
+        let reqCtrl = (modifiers & UInt32(controlKey)) != 0
+
+        return hasOpt == reqOpt && hasShift == reqShift && hasCmd == reqCmd && hasCtrl == reqCtrl
+    }
+
+    public static let standardPresets: [ShortcutConfig] = [
+        ShortcutConfig(keyCode: 49, modifiers: UInt32(optionKey | shiftKey), displayString: "⌥⇧ Space (Option + Shift + Space)"),
+        ShortcutConfig(keyCode: 49, modifiers: UInt32(optionKey), displayString: "⌥ Space (Option + Space)"),
+        ShortcutConfig(keyCode: 49, modifiers: UInt32(controlKey | optionKey), displayString: "⌃⌥ Space (Control + Option + Space)"),
+        ShortcutConfig(keyCode: 49, modifiers: UInt32(cmdKey | optionKey), displayString: "⌘⌥ Space (Command + Option + Space)"),
+        ShortcutConfig(keyCode: 49, modifiers: UInt32(cmdKey | shiftKey), displayString: "⌘⇧ Space (Command + Shift + Space)"),
+        ShortcutConfig(keyCode: 14, modifiers: UInt32(optionKey), displayString: "⌥ E (Option + E)"),
+        ShortcutConfig(keyCode: 14, modifiers: UInt32(optionKey | shiftKey), displayString: "⌥⇧ E (Option + Shift + E)"),
+        ShortcutConfig(keyCode: 14, modifiers: UInt32(controlKey | optionKey), displayString: "⌃⌥ E (Control + Option + E)"),
+        ShortcutConfig(keyCode: 14, modifiers: UInt32(cmdKey | shiftKey), displayString: "⌘⇧ E (Command + Shift + E)"),
+        ShortcutConfig(keyCode: 2, modifiers: UInt32(optionKey), displayString: "⌥ D (Option + D)"),
+        ShortcutConfig(keyCode: 2, modifiers: UInt32(optionKey | shiftKey), displayString: "⌥⇧ D (Option + Shift + D)")
+    ]
+
+    public static func fromDisplayString(_ str: String, defaultVal: ShortcutConfig) -> ShortcutConfig {
+        if let found = standardPresets.first(where: { $0.displayString == str }) {
+            return found
+        }
+        return defaultVal
+    }
+}
 
 public struct ModelInfo: Codable, Equatable {
     public let id: String
@@ -69,7 +188,12 @@ public class AppConfig: Codable {
     public var pillDelayMs: Int
     public var hotkeyString: String
 
-    // Four-Finger Universal Tap & Web Lookup Settings
+    // Trackpad Gesture & Customizable Shortcut Settings
+    public var fingerTapMode: GestureFingerMode
+    public var universalShortcut: ShortcutConfig
+    public var contextShortcut: ShortcutConfig
+
+    // Four-Finger Universal Tap & Web Lookup Settings (Maintained for full backward compatibility)
     public var enableFourFingerTap: Bool
     public var enableInternetSearchForFourFinger: Bool
     public var fourFingerSystemPrompt: String
@@ -168,6 +292,7 @@ public class AppConfig: Codable {
         case selectedProvider, fallbackProvider, fallbackModel, apiKeys, selectedModels, cachedModels
         case activePresetId, customSystemPrompt, customPromptTemplate
         case enableFloatingPill, enablePageContext, pillDelayMs, hotkeyString
+        case fingerTapMode, universalShortcut, contextShortcut
         case enableFourFingerTap, enableInternetSearchForFourFinger, fourFingerSystemPrompt, fourFingerPromptTemplate, fourFingerHotkeyString
     }
 
@@ -212,14 +337,19 @@ public class AppConfig: Codable {
         self.enableFloatingPill = true
         self.enablePageContext = true
         self.pillDelayMs = 300
-        self.hotkeyString = "⌥ Space (Option + Space)"
+        self.hotkeyString = ShortcutConfig.defaultContext.displayString
 
-        // Defaults for Four-Finger Tap & Web Lookup
+        // Defaults for Gesture & Customizable Shortcuts
+        self.fingerTapMode = .fourFingers
+        self.universalShortcut = ShortcutConfig.defaultUniversal
+        self.contextShortcut = ShortcutConfig.defaultContext
+
+        // Defaults for Four-Finger Tap & Web Lookup (Backward compatibility)
         self.enableFourFingerTap = true
         self.enableInternetSearchForFourFinger = true
         self.fourFingerSystemPrompt = AppConfig.defaultFourFingerSystemPrompt
         self.fourFingerPromptTemplate = AppConfig.defaultFourFingerPromptTemplate
-        self.fourFingerHotkeyString = "⌥⇧ Space (Option + Shift + Space)"
+        self.fourFingerHotkeyString = ShortcutConfig.defaultUniversal.displayString
     }
 
     public required init(from decoder: Decoder) throws {
@@ -237,13 +367,39 @@ public class AppConfig: Codable {
         self.enableFloatingPill = try container.decodeIfPresent(Bool.self, forKey: .enableFloatingPill) ?? true
         self.enablePageContext = try container.decodeIfPresent(Bool.self, forKey: .enablePageContext) ?? true
         self.pillDelayMs = try container.decodeIfPresent(Int.self, forKey: .pillDelayMs) ?? 300
-        self.hotkeyString = try container.decodeIfPresent(String.self, forKey: .hotkeyString) ?? "⌥ Space (Option + Space)"
+        self.hotkeyString = try container.decodeIfPresent(String.self, forKey: .hotkeyString) ?? ShortcutConfig.defaultContext.displayString
 
-        self.enableFourFingerTap = try container.decodeIfPresent(Bool.self, forKey: .enableFourFingerTap) ?? true
+        // Decode fingerTapMode with graceful migration from enableFourFingerTap
+        if let mode = try container.decodeIfPresent(GestureFingerMode.self, forKey: .fingerTapMode) {
+            self.fingerTapMode = mode
+        } else {
+            let oldTap = try container.decodeIfPresent(Bool.self, forKey: .enableFourFingerTap) ?? true
+            self.fingerTapMode = oldTap ? .fourFingers : .disabled
+        }
+
+        // Decode universalShortcut with graceful migration from fourFingerHotkeyString
+        if let uSc = try container.decodeIfPresent(ShortcutConfig.self, forKey: .universalShortcut) {
+            self.universalShortcut = uSc
+        } else if let oldStr = try container.decodeIfPresent(String.self, forKey: .fourFingerHotkeyString), !oldStr.isEmpty {
+            self.universalShortcut = ShortcutConfig.fromDisplayString(oldStr, defaultVal: .defaultUniversal)
+        } else {
+            self.universalShortcut = .defaultUniversal
+        }
+
+        // Decode contextShortcut with graceful migration from hotkeyString
+        if let cSc = try container.decodeIfPresent(ShortcutConfig.self, forKey: .contextShortcut) {
+            self.contextShortcut = cSc
+        } else if let oldStr = try container.decodeIfPresent(String.self, forKey: .hotkeyString), !oldStr.isEmpty {
+            self.contextShortcut = ShortcutConfig.fromDisplayString(oldStr, defaultVal: .defaultContext)
+        } else {
+            self.contextShortcut = .defaultContext
+        }
+
+        self.enableFourFingerTap = (self.fingerTapMode != .disabled)
         self.enableInternetSearchForFourFinger = try container.decodeIfPresent(Bool.self, forKey: .enableInternetSearchForFourFinger) ?? true
         self.fourFingerSystemPrompt = try container.decodeIfPresent(String.self, forKey: .fourFingerSystemPrompt) ?? AppConfig.defaultFourFingerSystemPrompt
         self.fourFingerPromptTemplate = try container.decodeIfPresent(String.self, forKey: .fourFingerPromptTemplate) ?? AppConfig.defaultFourFingerPromptTemplate
-        self.fourFingerHotkeyString = try container.decodeIfPresent(String.self, forKey: .fourFingerHotkeyString) ?? "⌥⇧ Space (Option + Shift + Space)"
+        self.fourFingerHotkeyString = self.universalShortcut.displayString
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -260,12 +416,15 @@ public class AppConfig: Codable {
         try container.encode(enableFloatingPill, forKey: .enableFloatingPill)
         try container.encode(enablePageContext, forKey: .enablePageContext)
         try container.encode(pillDelayMs, forKey: .pillDelayMs)
-        try container.encode(hotkeyString, forKey: .hotkeyString)
-        try container.encode(enableFourFingerTap, forKey: .enableFourFingerTap)
+        try container.encode(contextShortcut.displayString, forKey: .hotkeyString)
+        try container.encode(fingerTapMode, forKey: .fingerTapMode)
+        try container.encode(universalShortcut, forKey: .universalShortcut)
+        try container.encode(contextShortcut, forKey: .contextShortcut)
+        try container.encode(fingerTapMode != .disabled, forKey: .enableFourFingerTap)
         try container.encode(enableInternetSearchForFourFinger, forKey: .enableInternetSearchForFourFinger)
         try container.encode(fourFingerSystemPrompt, forKey: .fourFingerSystemPrompt)
         try container.encode(fourFingerPromptTemplate, forKey: .fourFingerPromptTemplate)
-        try container.encode(fourFingerHotkeyString, forKey: .fourFingerHotkeyString)
+        try container.encode(universalShortcut.displayString, forKey: .fourFingerHotkeyString)
     }
 
     public static var configDirectory: URL {
@@ -277,16 +436,31 @@ public class AppConfig: Codable {
         return configDirectory.appendingPathComponent("config.json")
     }
 
+    public static var alternateConfigFileURL: URL {
+        let home = FileManager.default.homeDirectoryForCurrentUser
+        return home.appendingPathComponent("Library/Application Support/PlatoReader/config.json")
+    }
+
     public static func load() -> AppConfig {
         let url = configFileURL
-        guard FileManager.default.fileExists(atPath: url.path),
-              let data = try? Data(contentsOf: url),
-              let config = try? JSONDecoder().decode(AppConfig.self, from: data) else {
-            let fresh = AppConfig()
-            fresh.save()
-            return fresh
+        if FileManager.default.fileExists(atPath: url.path),
+           let data = try? Data(contentsOf: url),
+           let config = try? JSONDecoder().decode(AppConfig.self, from: data) {
+            return config
         }
-        return config
+
+        // Secondary fallback to Application Support if user previously placed config there
+        let altUrl = alternateConfigFileURL
+        if FileManager.default.fileExists(atPath: altUrl.path),
+           let data = try? Data(contentsOf: altUrl),
+           let config = try? JSONDecoder().decode(AppConfig.self, from: data) {
+            config.save() // migrate to ~/.config/PlatoReader
+            return config
+        }
+
+        let fresh = AppConfig()
+        fresh.save()
+        return fresh
     }
 
     public func save() {
