@@ -35,6 +35,11 @@ public class SettingsWindowController: NSWindowController, NSTextViewDelegate {
     private var resetUniversalButton: NSButton!
     private var tempUniversalShortcut: ShortcutConfig!
 
+    private var clipboardShortcutPopUp: NSPopUpButton!
+    private var recordClipboardButton: NSButton!
+    private var resetClipboardButton: NSButton!
+    private var tempClipboardShortcut: ShortcutConfig!
+
     private var fourFingerSystemPromptView: NSTextView!
     private var fourFingerTemplatePromptView: NSTextView!
 
@@ -52,6 +57,7 @@ public class SettingsWindowController: NSWindowController, NSTextViewDelegate {
     private enum ShortcutTarget {
         case universal
         case context
+        case clipboard
     }
     private var activeRecordingTarget: ShortcutTarget? = nil
     private var localKeyMonitor: Any? = nil
@@ -341,45 +347,71 @@ public class SettingsWindowController: NSWindowController, NSTextViewDelegate {
         resetUniversalButton.action = #selector(resetUniversalClicked)
         view.addSubview(resetUniversalButton)
 
-        // 4. System Prompt Section
-        let sysLabel = createLabel(text: "System Instructions (Universal Explainer):", frame: NSRect(x: 20, y: 280, width: 450, height: 18), bold: true)
+        // 4. Clipboard Explain Shortcut Section (New Feature)
+        let clipboardLabel = createLabel(text: "Clipboard Shortcut:", frame: NSRect(x: 20, y: 280, width: 145, height: 20), bold: true)
+        view.addSubview(clipboardLabel)
+
+        clipboardShortcutPopUp = NSPopUpButton(frame: NSRect(x: 165, y: 277, width: 235, height: 26))
+        view.addSubview(clipboardShortcutPopUp)
+
+        recordClipboardButton = NSButton(frame: NSRect(x: 410, y: 276, width: 110, height: 26))
+        recordClipboardButton.title = "🎙️ Record Key"
+        recordClipboardButton.bezelStyle = .rounded
+        recordClipboardButton.target = self
+        recordClipboardButton.action = #selector(recordClipboardClicked)
+        view.addSubview(recordClipboardButton)
+
+        resetClipboardButton = NSButton(frame: NSRect(x: 525, y: 276, width: 55, height: 26))
+        resetClipboardButton.title = "↺ Reset"
+        resetClipboardButton.bezelStyle = .rounded
+        resetClipboardButton.target = self
+        resetClipboardButton.action = #selector(resetClipboardClicked)
+        view.addSubview(resetClipboardButton)
+
+        let clipboardHint = createLabel(text: "Explains recently copied text (⌘C) anytime using the 4-finger prompt.", frame: NSRect(x: 165, y: 258, width: 415, height: 16), bold: false)
+        clipboardHint.font = NSFont.systemFont(ofSize: 10)
+        clipboardHint.textColor = NSColor.secondaryLabelColor
+        view.addSubview(clipboardHint)
+
+        // 5. System Prompt Section
+        let sysLabel = createLabel(text: "System Instructions (Universal Explainer):", frame: NSRect(x: 20, y: 235, width: 450, height: 18), bold: true)
         view.addSubview(sysLabel)
 
-        let sysScroll = NSScrollView(frame: NSRect(x: 20, y: 185, width: 550, height: 90))
+        let sysScroll = NSScrollView(frame: NSRect(x: 20, y: 148, width: 550, height: 85))
         sysScroll.hasVerticalScroller = true
         sysScroll.borderType = .bezelBorder
 
-        fourFingerSystemPromptView = NSTextView(frame: NSRect(x: 0, y: 0, width: 550, height: 90))
+        fourFingerSystemPromptView = NSTextView(frame: NSRect(x: 0, y: 0, width: 550, height: 85))
         fourFingerSystemPromptView.autoresizingMask = [.width]
         fourFingerSystemPromptView.isRichText = false
         fourFingerSystemPromptView.font = NSFont.monospacedSystemFont(ofSize: 11, weight: .regular)
         sysScroll.documentView = fourFingerSystemPromptView
         view.addSubview(sysScroll)
 
-        // 5. Prompt Template Section
-        let templateLabel = createLabel(text: "Prompt Template (Variable: {selection}):", frame: NSRect(x: 20, y: 155, width: 530, height: 18), bold: true)
+        // 6. Prompt Template Section
+        let templateLabel = createLabel(text: "Prompt Template (Variable: {selection}):", frame: NSRect(x: 20, y: 122, width: 530, height: 18), bold: true)
         view.addSubview(templateLabel)
 
-        let templateScroll = NSScrollView(frame: NSRect(x: 20, y: 55, width: 550, height: 95))
+        let templateScroll = NSScrollView(frame: NSRect(x: 20, y: 45, width: 550, height: 75))
         templateScroll.hasVerticalScroller = true
         templateScroll.borderType = .bezelBorder
 
-        fourFingerTemplatePromptView = NSTextView(frame: NSRect(x: 0, y: 0, width: 550, height: 95))
+        fourFingerTemplatePromptView = NSTextView(frame: NSRect(x: 0, y: 0, width: 550, height: 75))
         fourFingerTemplatePromptView.autoresizingMask = [.width]
         fourFingerTemplatePromptView.isRichText = false
         fourFingerTemplatePromptView.font = NSFont.monospacedSystemFont(ofSize: 11, weight: .regular)
         templateScroll.documentView = fourFingerTemplatePromptView
         view.addSubview(templateScroll)
 
-        // 6. Reset Prompt Button & Privacy Notice
-        let resetBtn = NSButton(frame: NSRect(x: 20, y: 15, width: 195, height: 26))
+        // 7. Reset Prompt Button & Privacy Notice
+        let resetBtn = NSButton(frame: NSRect(x: 20, y: 12, width: 195, height: 26))
         resetBtn.title = "🔄 Reset Prompt to Default"
         resetBtn.bezelStyle = .rounded
         resetBtn.target = self
         resetBtn.action = #selector(resetFourFingerPromptClicked)
         view.addSubview(resetBtn)
 
-        let privacyNote = createLabel(text: "🔒 Privacy: Only highlighted text is sent. Background tabs are never read.", frame: NSRect(x: 225, y: 17, width: 345, height: 22), bold: false)
+        let privacyNote = createLabel(text: "🔒 Privacy: Only highlighted or copied text is sent. Background tabs are never read.", frame: NSRect(x: 225, y: 14, width: 345, height: 22), bold: false)
         privacyNote.font = NSFont.systemFont(ofSize: 10, weight: .semibold)
         privacyNote.textColor = NSColor.secondaryLabelColor
         view.addSubview(privacyNote)
@@ -508,6 +540,9 @@ public class SettingsWindowController: NSWindowController, NSTextViewDelegate {
         tempUniversalShortcut = config.universalShortcut
         populateShortcutPopUp(universalShortcutPopUp, current: tempUniversalShortcut, action: #selector(universalPresetChanged))
 
+        tempClipboardShortcut = config.clipboardShortcut
+        populateShortcutPopUp(clipboardShortcutPopUp, current: tempClipboardShortcut, action: #selector(clipboardPresetChanged))
+
         tempContextShortcut = config.contextShortcut
         populateShortcutPopUp(contextShortcutPopUp, current: tempContextShortcut, action: #selector(contextPresetChanged))
 
@@ -560,6 +595,15 @@ public class SettingsWindowController: NSWindowController, NSTextViewDelegate {
         }
     }
 
+    @objc private func clipboardPresetChanged() {
+        guard let item = clipboardShortcutPopUp.selectedItem else { return }
+        if let sc = item.representedObject as? ShortcutConfig {
+            tempClipboardShortcut = sc
+        } else {
+            startRecording(target: .clipboard)
+        }
+    }
+
     @objc private func contextPresetChanged() {
         guard let item = contextShortcutPopUp.selectedItem else { return }
         if let sc = item.representedObject as? ShortcutConfig {
@@ -577,6 +621,14 @@ public class SettingsWindowController: NSWindowController, NSTextViewDelegate {
         }
     }
 
+    @objc private func recordClipboardClicked() {
+        if activeRecordingTarget == .clipboard {
+            stopRecording()
+        } else {
+            startRecording(target: .clipboard)
+        }
+    }
+
     @objc private func recordContextClicked() {
         if activeRecordingTarget == .context {
             stopRecording()
@@ -591,6 +643,12 @@ public class SettingsWindowController: NSWindowController, NSTextViewDelegate {
         syncPopUpSelection(universalShortcutPopUp, current: tempUniversalShortcut)
     }
 
+    @objc private func resetClipboardClicked() {
+        stopRecording()
+        tempClipboardShortcut = ShortcutConfig.defaultClipboard
+        syncPopUpSelection(clipboardShortcutPopUp, current: tempClipboardShortcut)
+    }
+
     @objc private func resetContextClicked() {
         stopRecording()
         tempContextShortcut = ShortcutConfig.defaultContext
@@ -603,6 +661,8 @@ public class SettingsWindowController: NSWindowController, NSTextViewDelegate {
 
         if target == .universal {
             recordUniversalButton.title = "⌨️ Press Keys (Esc)"
+        } else if target == .clipboard {
+            recordClipboardButton.title = "⌨️ Press Keys (Esc)"
         } else {
             recordContextButton.title = "⌨️ Press Keys (Esc)"
         }
@@ -625,6 +685,9 @@ public class SettingsWindowController: NSWindowController, NSTextViewDelegate {
                 if self.activeRecordingTarget == .universal {
                     self.tempUniversalShortcut = newSc
                     self.syncPopUpSelection(self.universalShortcutPopUp, current: newSc)
+                } else if self.activeRecordingTarget == .clipboard {
+                    self.tempClipboardShortcut = newSc
+                    self.syncPopUpSelection(self.clipboardShortcutPopUp, current: newSc)
                 } else if self.activeRecordingTarget == .context {
                     self.tempContextShortcut = newSc
                     self.syncPopUpSelection(self.contextShortcutPopUp, current: newSc)
@@ -643,6 +706,7 @@ public class SettingsWindowController: NSWindowController, NSTextViewDelegate {
         }
         activeRecordingTarget = nil
         recordUniversalButton?.title = "🎙️ Record Key"
+        recordClipboardButton?.title = "🎙️ Record Key"
         recordContextButton?.title = "🎙️ Record Key"
     }
 
@@ -867,6 +931,10 @@ public class SettingsWindowController: NSWindowController, NSTextViewDelegate {
         if let uSc = tempUniversalShortcut {
             config.universalShortcut = uSc
             config.fourFingerHotkeyString = uSc.displayString
+        }
+
+        if let clSc = tempClipboardShortcut {
+            config.clipboardShortcut = clSc
         }
 
         if let cSc = tempContextShortcut {

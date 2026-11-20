@@ -4,6 +4,7 @@ import Carbon
 public protocol HotkeyManagerDelegate: AnyObject {
     func didTriggerHotkey()
     func didTriggerFourFingerHotkey()
+    func didTriggerClipboardHotkey()
     func didDetectSelection(_ selection: SelectionInfo)
     func didDeselect()
 }
@@ -19,16 +20,19 @@ public class HotkeyManager {
 
     private var hotKeyRefNormal: EventHotKeyRef?
     private var hotKeyRefFourFinger: EventHotKeyRef?
+    private var hotKeyRefClipboard: EventHotKeyRef?
     private var isCarbonHandlerInstalled: Bool = false
 
     public var universalShortcut: ShortcutConfig = .defaultUniversal
     public var contextShortcut: ShortcutConfig = .defaultContext
+    public var clipboardShortcut: ShortcutConfig = .defaultClipboard
 
     public init() {}
 
-    public func updateShortcuts(universal: ShortcutConfig, context: ShortcutConfig) {
+    public func updateShortcuts(universal: ShortcutConfig, context: ShortcutConfig, clipboard: ShortcutConfig = .defaultClipboard) {
         self.universalShortcut = universal
         self.contextShortcut = context
+        self.clipboardShortcut = clipboard
         reregisterCarbonHotkeys()
     }
 
@@ -87,6 +91,10 @@ public class HotkeyManager {
             UnregisterEventHotKey(ref)
             hotKeyRefFourFinger = nil
         }
+        if let ref = hotKeyRefClipboard {
+            UnregisterEventHotKey(ref)
+            hotKeyRefClipboard = nil
+        }
     }
 
     @discardableResult
@@ -107,6 +115,14 @@ public class HotkeyManager {
             return true
         }
 
+        // 3. Clipboard Explain Shortcut
+        if clipboardShortcut.matchesNSEvent(event) {
+            DispatchQueue.main.async {
+                self.delegate?.didTriggerClipboardHotkey()
+            }
+            return true
+        }
+
         return false
     }
 
@@ -120,6 +136,10 @@ public class HotkeyManager {
             UnregisterEventHotKey(ref)
             hotKeyRefFourFinger = nil
         }
+        if let ref = hotKeyRefClipboard {
+            UnregisterEventHotKey(ref)
+            hotKeyRefClipboard = nil
+        }
 
         // ID 1: Context Shortcut
         var hotKeyNormal = EventHotKeyID()
@@ -132,6 +152,12 @@ public class HotkeyManager {
         hotKeyFour.signature = OSType(0x504C544F) // 'PLTO'
         hotKeyFour.id = 2
         RegisterEventHotKey(universalShortcut.keyCode, universalShortcut.modifiers, hotKeyFour, GetApplicationEventTarget(), 0, &hotKeyRefFourFinger)
+
+        // ID 3: Clipboard Shortcut
+        var hotKeyClip = EventHotKeyID()
+        hotKeyClip.signature = OSType(0x504C544F) // 'PLTO'
+        hotKeyClip.id = 3
+        RegisterEventHotKey(clipboardShortcut.keyCode, clipboardShortcut.modifiers, hotKeyClip, GetApplicationEventTarget(), 0, &hotKeyRefClipboard)
     }
 
     private func registerCarbonHotkeys() {
@@ -153,6 +179,8 @@ public class HotkeyManager {
                             manager.delegate?.didTriggerHotkey()
                         } else if hkID.id == 2 {
                             manager.delegate?.didTriggerFourFingerHotkey()
+                        } else if hkID.id == 3 {
+                            manager.delegate?.didTriggerClipboardHotkey()
                         }
                     }
                 }

@@ -28,14 +28,24 @@ public class AccessibilityHelper {
     /// Strictly extracts only what the user highlighted with their cursor.
     /// Does NOT access background window contents, tabs, or DOM trees.
     public func captureCurrentSelection(allowClipboardFallback: Bool = true) -> SelectionInfo? {
-        guard let frontApp = NSWorkspace.shared.frontmostApplication else {
+        var frontApp = NSWorkspace.shared.frontmostApplication
+        let myBundleId = Bundle.main.bundleIdentifier ?? "com.anshul.platoreader"
+        if frontApp?.bundleIdentifier == myBundleId || frontApp?.bundleIdentifier == nil {
+            frontApp = NSWorkspace.shared.runningApplications.first(where: {
+                $0.activationPolicy == .regular && $0.bundleIdentifier != myBundleId && $0.isActive
+            }) ?? NSWorkspace.shared.runningApplications.first(where: {
+                $0.activationPolicy == .regular && $0.bundleIdentifier != myBundleId
+            })
+        }
+
+        guard let targetApp = frontApp else {
             return nil
         }
 
-        let appName = frontApp.localizedName ?? "Application"
-        let bundleId = frontApp.bundleIdentifier
+        let appName = targetApp.localizedName ?? "Application"
+        let bundleId = targetApp.bundleIdentifier
 
-        let appElement = AXUIElementCreateApplication(frontApp.processIdentifier)
+        let appElement = AXUIElementCreateApplication(targetApp.processIdentifier)
 
         // 1. Try to get focused element and its selected text directly via Accessibility APIs
         var focusedObj: CFTypeRef?
@@ -87,7 +97,26 @@ public class AccessibilityHelper {
             }
         }
 
-        // 3. Resilient Clipboard Fallback for browsers & custom controls
+        // 3. Try element directly under mouse cursor
+        if selectedText == nil {
+            let mouseLoc = NSEvent.mouseLocation
+            let screenHeight = NSScreen.screens.first?.frame.height ?? 1080
+            let flippedY = screenHeight - mouseLoc.y
+            let systemWide = AXUIElementCreateSystemWide()
+            var elemAtPos: AXUIElement?
+            if AXUIElementCopyElementAtPosition(systemWide, Float(mouseLoc.x), Float(flippedY), &elemAtPos) == .success,
+               let el = elemAtPos {
+                var posSelectedTextObj: CFTypeRef?
+                if AXUIElementCopyAttributeValue(el, kAXSelectedTextAttribute as CFString, &posSelectedTextObj) == .success,
+                   let posText = posSelectedTextObj as? String,
+                   !posText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    selectedText = posText
+                    if focusedAX == nil { focusedAX = el }
+                }
+            }
+        }
+
+        // 4. Resilient Clipboard Fallback for browsers & custom controls
         // If native Accessibility didn't return text and clipboard fallback is permitted,
         // copy the highlighted portion only.
         if (selectedText == nil || selectedText?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == true) && allowClipboardFallback {
@@ -100,7 +129,7 @@ public class AccessibilityHelper {
             return nil
         }
 
-        // 4. Calculate bounds (fall back to mouse cursor if element bounds unavailable)
+        // 5. Calculate bounds (fall back to mouse cursor if element bounds unavailable)
         var bounds = textBounds
         if bounds == .zero || bounds.width <= 0 || bounds.height <= 0 {
             let mouseLoc = NSEvent.mouseLocation
@@ -112,7 +141,7 @@ public class AccessibilityHelper {
             }
         }
 
-        // 5. Get Window Title and Document URL (if available)
+        // 6. Get Window Title and Document URL (if available)
         var documentPath: String? = nil
         var windowTitle: String? = nil
 
@@ -188,9 +217,11 @@ public class AccessibilityHelper {
 
         keyDown.post(tap: .cghidEventTap)
         keyUp.post(tap: .cghidEventTap)
+        keyDown.post(tap: .cgSessionEventTap)
+        keyUp.post(tap: .cgSessionEventTap)
 
-        // Poll for pasteboard change (up to 80ms)
-        for _ in 0..<8 {
+        // Poll for pasteboard change (up to 250ms with 10ms increments)
+        for _ in 0..<25 {
             usleep(10000) // 10ms
             if pb.changeCount != initialChangeCount {
                 if let str = pb.string(forType: .string)?.trimmingCharacters(in: .whitespacesAndNewlines), !str.isEmpty {

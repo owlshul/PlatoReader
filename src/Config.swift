@@ -41,6 +41,12 @@ public struct ShortcutConfig: Codable, Equatable {
         displayString: "⌥ Space (Option + Space)"
     )
 
+    public static let defaultClipboard = ShortcutConfig(
+        keyCode: 8, // 'C'
+        modifiers: UInt32(optionKey | shiftKey),
+        displayString: "⌥⇧ C (Option + Shift + C)"
+    )
+
     public static let keyCodeNames: [UInt32: String] = [
         49: "Space",
         36: "Return",
@@ -103,6 +109,11 @@ public struct ShortcutConfig: Codable, Equatable {
         ShortcutConfig(keyCode: 49, modifiers: UInt32(controlKey | optionKey), displayString: "⌃⌥ Space (Control + Option + Space)"),
         ShortcutConfig(keyCode: 49, modifiers: UInt32(cmdKey | optionKey), displayString: "⌘⌥ Space (Command + Option + Space)"),
         ShortcutConfig(keyCode: 49, modifiers: UInt32(cmdKey | shiftKey), displayString: "⌘⇧ Space (Command + Shift + Space)"),
+        ShortcutConfig(keyCode: 8, modifiers: UInt32(optionKey | shiftKey), displayString: "⌥⇧ C (Option + Shift + C)"),
+        ShortcutConfig(keyCode: 8, modifiers: UInt32(cmdKey | optionKey), displayString: "⌘⌥ C (Command + Option + C)"),
+        ShortcutConfig(keyCode: 8, modifiers: UInt32(controlKey | optionKey), displayString: "⌃⌥ C (Control + Option + C)"),
+        ShortcutConfig(keyCode: 8, modifiers: UInt32(optionKey), displayString: "⌥ C (Option + C)"),
+        ShortcutConfig(keyCode: 8, modifiers: UInt32(cmdKey | shiftKey), displayString: "⌘⇧ C (Command + Shift + C)"),
         ShortcutConfig(keyCode: 14, modifiers: UInt32(optionKey), displayString: "⌥ E (Option + E)"),
         ShortcutConfig(keyCode: 14, modifiers: UInt32(optionKey | shiftKey), displayString: "⌥⇧ E (Option + Shift + E)"),
         ShortcutConfig(keyCode: 14, modifiers: UInt32(controlKey | optionKey), displayString: "⌃⌥ E (Control + Option + E)"),
@@ -192,6 +203,7 @@ public class AppConfig: Codable {
     public var fingerTapMode: GestureFingerMode
     public var universalShortcut: ShortcutConfig
     public var contextShortcut: ShortcutConfig
+    public var clipboardShortcut: ShortcutConfig
 
     // Four-Finger Universal Tap & Web Lookup Settings (Maintained for full backward compatibility)
     public var enableFourFingerTap: Bool
@@ -292,7 +304,7 @@ public class AppConfig: Codable {
         case selectedProvider, fallbackProvider, fallbackModel, apiKeys, selectedModels, cachedModels
         case activePresetId, customSystemPrompt, customPromptTemplate
         case enableFloatingPill, enablePageContext, pillDelayMs, hotkeyString
-        case fingerTapMode, universalShortcut, contextShortcut
+        case fingerTapMode, universalShortcut, contextShortcut, clipboardShortcut
         case enableFourFingerTap, enableInternetSearchForFourFinger, fourFingerSystemPrompt, fourFingerPromptTemplate, fourFingerHotkeyString
     }
 
@@ -343,6 +355,7 @@ public class AppConfig: Codable {
         self.fingerTapMode = .fourFingers
         self.universalShortcut = ShortcutConfig.defaultUniversal
         self.contextShortcut = ShortcutConfig.defaultContext
+        self.clipboardShortcut = ShortcutConfig.defaultClipboard
 
         // Defaults for Four-Finger Tap & Web Lookup (Backward compatibility)
         self.enableFourFingerTap = true
@@ -395,6 +408,9 @@ public class AppConfig: Codable {
             self.contextShortcut = .defaultContext
         }
 
+        // Decode clipboardShortcut (safe fallback for existing users)
+        self.clipboardShortcut = try container.decodeIfPresent(ShortcutConfig.self, forKey: .clipboardShortcut) ?? ShortcutConfig.defaultClipboard
+
         self.enableFourFingerTap = (self.fingerTapMode != .disabled)
         self.enableInternetSearchForFourFinger = try container.decodeIfPresent(Bool.self, forKey: .enableInternetSearchForFourFinger) ?? true
         self.fourFingerSystemPrompt = try container.decodeIfPresent(String.self, forKey: .fourFingerSystemPrompt) ?? AppConfig.defaultFourFingerSystemPrompt
@@ -420,6 +436,7 @@ public class AppConfig: Codable {
         try container.encode(fingerTapMode, forKey: .fingerTapMode)
         try container.encode(universalShortcut, forKey: .universalShortcut)
         try container.encode(contextShortcut, forKey: .contextShortcut)
+        try container.encode(clipboardShortcut, forKey: .clipboardShortcut)
         try container.encode(fingerTapMode != .disabled, forKey: .enableFourFingerTap)
         try container.encode(enableInternetSearchForFourFinger, forKey: .enableInternetSearchForFourFinger)
         try container.encode(fourFingerSystemPrompt, forKey: .fourFingerSystemPrompt)

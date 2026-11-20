@@ -11,6 +11,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, FloatingPillDelegate, Explan
     private var multitouchManager: MultitouchManager!
 
     private var lastSelection: SelectionInfo?
+    private var lastSelectionTime: TimeInterval = 0
     private var lastContextResult: PDFContextResult?
     private var lastExplanationText: String = ""
     private var lastPageContextText: String? = nil
@@ -38,7 +39,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, FloatingPillDelegate, Explan
         // Setup Hotkey and Event Monitors
         hotkeyManager = HotkeyManager()
         hotkeyManager.delegate = self
-        hotkeyManager.updateShortcuts(universal: config.universalShortcut, context: config.contextShortcut)
+        hotkeyManager.updateShortcuts(universal: config.universalShortcut, context: config.contextShortcut, clipboard: config.clipboardShortcut)
         hotkeyManager.startMonitoring()
 
         // Setup Multitouch Trackpad Monitor for 3/4-Finger Tap
@@ -47,6 +48,14 @@ class AppDelegate: NSObject, NSApplicationDelegate, FloatingPillDelegate, Explan
         multitouchManager.fingerTapMode = config.fingerTapMode
         multitouchManager.isEnabled = (config.fingerTapMode != .disabled)
         multitouchManager.startMonitoring()
+
+        // Listen for active app changes to prevent stale selection leakage across windows
+        NSWorkspace.shared.notificationCenter.addObserver(
+            self,
+            selector: #selector(handleAppSwitch),
+            name: NSWorkspace.didActivateApplicationNotification,
+            object: nil
+        )
 
         // Check Permissions and First Run
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
@@ -109,6 +118,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, FloatingPillDelegate, Explan
 
         let contextShortStr = config.contextShortcut.displayString.components(separatedBy: " (").first ?? "⌥ Space"
         let universalShortStr = config.universalShortcut.displayString.components(separatedBy: " (").first ?? "⌥⇧ Space"
+        let clipShortStr = config.clipboardShortcut.displayString.components(separatedBy: " (").first ?? "⌥⇧ C"
 
         let explainItem = NSMenuItem(title: "Explain Selection (PDF Context) [\(contextShortStr)]", action: #selector(triggerExplainManually), keyEquivalent: "")
         explainItem.target = self
@@ -117,6 +127,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, FloatingPillDelegate, Explan
         let fourFingerItem = NSMenuItem(title: "Explain Selection (Universal) [\(universalShortStr)]", action: #selector(triggerFourFingerManually), keyEquivalent: "")
         fourFingerItem.target = self
         menu.addItem(fourFingerItem)
+
+        let clipboardItem = NSMenuItem(title: "Explain Copied Text [\(clipShortStr)]", action: #selector(triggerClipboardManually), keyEquivalent: "")
+        clipboardItem.target = self
+        menu.addItem(clipboardItem)
 
         let settingsItem = NSMenuItem(title: "Preferences...", action: #selector(openSettings), keyEquivalent: ",")
         settingsItem.target = self
@@ -188,6 +202,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, FloatingPillDelegate, Explan
     // MARK: - HotkeyManagerDelegate
     func didDetectSelection(_ selection: SelectionInfo) {
         lastSelection = selection
+        lastSelectionTime = Date().timeIntervalSince1970
         if config.enableFloatingPill {
             floatingPill.show(for: selection)
         }
@@ -195,6 +210,12 @@ class AppDelegate: NSObject, NSApplicationDelegate, FloatingPillDelegate, Explan
 
     func didDeselect() {
         floatingPill.hide()
+        lastSelection = nil
+    }
+
+    @objc private func handleAppSwitch() {
+        floatingPill.hide()
+        lastSelection = nil
     }
 
     func didTriggerHotkey() {
@@ -205,12 +226,20 @@ class AppDelegate: NSObject, NSApplicationDelegate, FloatingPillDelegate, Explan
         triggerFourFingerExplain()
     }
 
+    func didTriggerClipboardHotkey() {
+        triggerClipboardExplain()
+    }
+
     @objc private func triggerExplainManually() {
         triggerNormalExplain()
     }
 
     @objc private func triggerFourFingerManually() {
         triggerFourFingerExplain()
+    }
+
+    @objc private func triggerClipboardManually() {
+        triggerClipboardExplain()
     }
 
     // MARK: - MultitouchManagerDelegate
@@ -221,7 +250,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, FloatingPillDelegate, Explan
 
     private func triggerNormalExplain() {
         floatingPill.hide()
-        if let sel = AccessibilityHelper.shared.captureCurrentSelection(allowClipboardFallback: false) ?? lastSelection {
+        let now = Date().timeIntervalSince1970
+        let freshSelection = (now - lastSelectionTime < 3.0) ? lastSelection : nil
+        if let sel = AccessibilityHelper.shared.captureCurrentSelection(allowClipboardFallback: false) ?? freshSelection {
             if sel.appBundleId == "com.apple.Preview" {
                 executeExplanation(for: sel)
             } else {
@@ -240,12 +271,16 @@ class AppDelegate: NSObject, NSApplicationDelegate, FloatingPillDelegate, Explan
 
     private func triggerFourFingerExplain() {
         floatingPill.hide()
+        let now = Date().timeIntervalSince1970
+        let freshSelection = (now - lastSelectionTime < 3.0) ? lastSelection : nil
+
         if let sel = AccessibilityHelper.shared.captureCurrentSelection(allowClipboardFallback: true) {
             executeFourFingerExplanation(for: sel)
-        } else if let last = lastSelection {
-            executeFourFingerExplanation(for: last)
+        } else if let fresh = freshSelection {
+            executeFourFingerExplanation(for: fresh)
         } else {
             let shortcutHint = config.universalShortcut.displayString.components(separatedBy: " (").first ?? "⌥⇧ Space"
+            let clipHint = config.clipboardShortcut.displayString.components(separatedBy: " (").first ?? "⌥⇧ C"
             let gestureName: String
             switch config.fingerTapMode {
             case .threeFingers: gestureName = "tap 3 fingers"
@@ -255,11 +290,47 @@ class AppDelegate: NSObject, NSApplicationDelegate, FloatingPillDelegate, Explan
             }
             let alert = NSAlert()
             alert.messageText = "No Text Highlighted"
-            alert.informativeText = "Highlight any word or sentence in Safari, Chrome, or any application, then \(gestureName) or press \(shortcutHint)."
+            alert.informativeText = "Highlight any word or sentence in Safari, Chrome, or any application, then \(gestureName) or press \(shortcutHint).\n\n💡 Tip: You can also copy text (⌘C) and press \(clipHint) to explain it instantly!"
             alert.alertStyle = .informational
             alert.addButton(withTitle: "OK")
             alert.runModal()
         }
+    }
+
+    // MARK: - Clipboard Explain Flow (Recently Copied Sentence)
+    private func triggerClipboardExplain() {
+        floatingPill.hide()
+        guard let copiedText = NSPasteboard.general.string(forType: .string)?.trimmingCharacters(in: .whitespacesAndNewlines), !copiedText.isEmpty else {
+            let clipHint = config.clipboardShortcut.displayString.components(separatedBy: " (").first ?? "⌥⇧ C"
+            let alert = NSAlert()
+            alert.messageText = "No Text in Clipboard"
+            alert.informativeText = "Copy any sentence or passage to your clipboard first (⌘C), then press \(clipHint) to get an instant explanation."
+            alert.alertStyle = .informational
+            alert.addButton(withTitle: "OK")
+            alert.runModal()
+            return
+        }
+
+        // Calculate bounds near current mouse cursor
+        let mouseLoc = NSEvent.mouseLocation
+        let bounds: CGRect
+        if let primaryScreen = NSScreen.screens.first {
+            let flippedY = primaryScreen.frame.height - mouseLoc.y
+            bounds = CGRect(x: mouseLoc.x - 20, y: flippedY - 10, width: 40, height: 20)
+        } else {
+            bounds = CGRect(x: mouseLoc.x, y: mouseLoc.y, width: 40, height: 20)
+        }
+
+        let selectionInfo = SelectionInfo(
+            text: copiedText,
+            bounds: bounds,
+            documentPath: nil,
+            windowTitle: nil,
+            appName: "Copied Text",
+            appBundleId: nil
+        )
+
+        executeFourFingerExplanation(for: selectionInfo)
     }
 
     // MARK: - FloatingPillDelegate
@@ -470,7 +541,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, FloatingPillDelegate, Explan
         self.config = updatedConfig
         multitouchManager.fingerTapMode = updatedConfig.fingerTapMode
         multitouchManager.isEnabled = (updatedConfig.fingerTapMode != .disabled)
-        hotkeyManager.updateShortcuts(universal: updatedConfig.universalShortcut, context: updatedConfig.contextShortcut)
+        hotkeyManager.updateShortcuts(
+            universal: updatedConfig.universalShortcut,
+            context: updatedConfig.contextShortcut,
+            clipboard: updatedConfig.clipboardShortcut
+        )
         updateStatusMenu()
     }
 }

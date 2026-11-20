@@ -14,22 +14,27 @@ Whenever you highlight a sentence anywhere on your Mac, PlatoReader summons inst
 - **Instant AI Intelligence**: Uses the LLM's vast knowledge base to explain the meaning, philosophical depth, and context with zero search latency.
 - **Customizable Prompt & Template**: Personalize the prompt and template in **Preferences → 🖐️ Gestures & Shortcuts**.
 
-### 2. ⌨️ Fully Customizable Keyboard Shortcuts
-- Configure custom shortcuts for **Universal Lookup** (default: `⌥ ⇧ Space`) and **PDF Context Explain** (default: `⌥ Space`).
+### 2. 📋 Explain Recently Copied Text (Instant Clipboard Explain)
+- **Clipboard Intelligence**: Copy any word, sentence, or passage from anywhere (`⌘C`) and press your customizable shortcut (default: **`⌥ ⇧ C`** / Option + Shift + C). PlatoReader summons an instant explanation using the universal deep-context prompt.
+- **Record Your Preferred Shortcut**: Choose from presets or click **"🎙️ Record Key"** in **Preferences → 🖐️ Gestures & Shortcuts** to record your own custom shortcut (e.g. `⌘⌥ C`, `⌃⌥ C`, `⌥ C`, etc.).
+- **Zero Cross-Window Stale Selection**: Window switches and deselects automatically reset selection state so previously selected sentences are never memorized or repeated across windows.
+
+### 3. ⌨️ Fully Customizable Keyboard Shortcuts
+- Configure custom shortcuts for **Universal Lookup** (default: `⌥ ⇧ Space`), **Clipboard Explain** (default: `⌥ ⇧ C`), and **PDF Context Explain** (default: `⌥ Space`).
 - Choose from standard ergonomic presets or click **"🎙️ Record Key"** to press and assign any custom key combination (e.g., `⌃⌥ Space`, `⌘⌥ Space`, `⌥ E`, etc.).
 
-### 3. 📄 Context-Aware PDF Page Extraction (Preview.app)
+### 4. 📄 Context-Aware PDF Page Extraction (Preview.app)
 - In **Preview.app**, PlatoReader uses macOS `PDFKit` to identify the exact page you are reading and extracts surrounding context.
 - Perfect for dense philosophical texts (e.g. Allan Bloom's translation of Plato's *Republic*).
 - **Floating "💡 Explain" Pill**: Appears gently above selected text.
 - **Instant Hotkey**: Press your configured shortcut (default: **`⌥ Space`**) while text is highlighted.
 
-### 4. 🛡️ Multi-Provider, Automatic Failover & Dynamic Model Discovery
+### 5. 🛡️ Multi-Provider, Automatic Failover & Dynamic Model Discovery
 - Supported providers: **Google Gemini**, **Groq (Ultra-Fast)**, **OpenRouter** (Claude 3.5 Sonnet, DeepSeek R1), and **OpenAI**.
 - Automatic failover fallback: if your primary model hits a rate limit or network glitch, PlatoReader automatically falls over to your backup provider.
 - Dynamic model fetcher: Click **"⚡ Test Key & Fetch Models"** to validate keys and auto-populate available models.
 
-### 5. 💬 Follow-Up Intellectual Doubts
+### 6. 💬 Follow-Up Intellectual Doubts
 - Have a question or cross-examination about the explanation? Ask in the floating card's doubt input bar to get a live, research-grounded answer.
 
 ---
@@ -61,6 +66,7 @@ To detect highlighted text and screen coordinates, macOS requires Accessibility 
 | :--- | :--- | :--- | :--- |
 | **Universal Lookup** | **3 or 4-Finger Tap** on Trackpad | Any app (Browsers, Web, Notes, Slack) | Configurable (3, 4, or 3/4 fingers) |
 | **Universal Explain** | **`⌥ ⇧ Space`** (Option+Shift+Space) | Any app (Keyboard alternative) | Fully customizable in Preferences |
+| **Explain Copied Text** | **`⌥ ⇧ C`** (Option+Shift+C) | Any app (Clipboard contents) | Fully customizable in Preferences |
 | **PDF Page Context Explain** | **`⌥ Space`** (Option+Space) | macOS Preview.app | Fully customizable in Preferences |
 | **Floating Explain Pill** | Click **💡 Explain** above selection | Selection in Preview or Web | Toggleable in Preferences |
 | **Dismiss Popover** | **`Esc`** or click outside (when unpinned) | Popover Window | Fixed macOS standard |
