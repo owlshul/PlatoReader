@@ -37,7 +37,7 @@ public class FloatingPillWindow: NSPanel {
         containerView.layer?.borderColor = NSColor.separatorColor.cgColor
 
         button = NSButton(frame: NSRect(x: 0, y: 0, width: 95, height: 28))
-        button.title = "💡 Explain"
+        button.title = "Explain"
         button.font = NSFont.systemFont(ofSize: 12, weight: .medium)
         button.isBordered = false
         button.bezelStyle = .regularSquare

@@ -10,10 +10,10 @@ public enum GestureFingerMode: String, CaseIterable, Codable {
 
     public var displayName: String {
         switch self {
-        case .fourFingers: return "4 Fingers Tap (Default)"
-        case .threeFingers: return "3 Fingers Tap"
-        case .threeOrFour: return "3 or 4 Fingers Tap (Either)"
-        case .disabled: return "Disabled (No Trackpad Gesture)"
+        case .fourFingers: return "4-Finger Tap"
+        case .threeFingers: return "3-Finger Tap"
+        case .threeOrFour: return "3 or 4-Finger Tap"
+        case .disabled: return "Off"
         }
     }
 }
@@ -263,8 +263,8 @@ public class AppConfig: Codable {
     public static let presets: [PromptPreset] = [
         PromptPreset(
             id: "concise_context",
-            title: "📖 Short Contextual Meaning (Universal Default)",
-            description: "Short, direct explanation of the sentence in this context (2-4 sentences).",
+            title: "Short & Clear (Default)",
+            description: "Concise, direct explanation in context (2–4 sentences).",
             systemPrompt: """
             You are a concise, insightful reading companion for any book, article, or document.
             When given a selected sentence and its surrounding page context:
@@ -284,8 +284,8 @@ public class AppConfig: Codable {
         ),
         PromptPreset(
             id: "plain_english",
-            title: "💡 Simple & Plain English",
-            description: "Converts dense, archaic, or complex sentences into everyday speech.",
+            title: "Simple Everyday English",
+            description: "Turns dense or complex sentences into plain language.",
             systemPrompt: "You are a helpful reading companion. Explain dense or difficult sentences in simple, everyday English. Keep it brief (under 3 sentences).",
             template: """
             Context:
@@ -299,8 +299,8 @@ public class AppConfig: Codable {
         ),
         PromptPreset(
             id: "plato_bloom",
-            title: "🏛️ Classical Philosophy & Plato (Allan Bloom)",
-            description: "Deep dialectical analysis tailored to Bloom's literal translation & Greek concepts.",
+            title: "Classical Philosophy (Plato)",
+            description: "Dialectical analysis tailored to Allan Bloom's Republic & Greek terms.",
             systemPrompt: """
             You are an expert scholar of classical political philosophy and Allan Bloom's literal translation of Plato's Republic.
             Unpack Bloom's literalist choices (dikaiosyne, thumos, kallipolis, techne, eidos), identify who is speaking, and clarify the dialectical point. Keep it structured and accessible.
@@ -317,8 +317,8 @@ public class AppConfig: Codable {
         ),
         PromptPreset(
             id: "custom",
-            title: "✍️ Custom Prompt",
-            description: "Your own personalized instructions.",
+            title: "Custom",
+            description: "Your own instructions.",
             systemPrompt: "You are a helpful reading companion.",
             template: """
             Context:

@@ -8,7 +8,32 @@ public class SettingsWindowController: NSWindowController, NSTextViewDelegate {
     public weak var delegate: SettingsDelegate?
     private var config: AppConfig
 
-    // UI Elements
+    // Navigation
+    private var tabView: NSTabView!
+
+    // General Tab (Reading, Gestures, Shortcuts, Permissions)
+    private var enablePillCheckbox: NSButton!
+    private var enableContextCheckbox: NSButton!
+    private var gesturePopUp: NSPopUpButton!
+    private var universalShortcutPopUp: NSPopUpButton!
+    private var recordUniversalButton: NSButton!
+    private var resetUniversalButton: NSButton!
+    private var tempUniversalShortcut: ShortcutConfig!
+
+    private var contextShortcutPopUp: NSPopUpButton!
+    private var recordContextButton: NSButton!
+    private var resetContextButton: NSButton!
+    private var tempContextShortcut: ShortcutConfig!
+
+    private var clipboardShortcutPopUp: NSPopUpButton!
+    private var recordClipboardButton: NSButton!
+    private var resetClipboardButton: NSButton!
+    private var tempClipboardShortcut: ShortcutConfig!
+
+    private var permissionStatusLabel: NSTextField!
+    private var openPermissionButton: NSButton!
+
+    // AI Tab
     private var providerSegment: NSSegmentedControl!
     private var keyLabel: NSTextField!
     private var apiKeyField: NSSecureTextField!
@@ -21,40 +46,32 @@ public class SettingsWindowController: NSWindowController, NSTextViewDelegate {
     private var testFetchButton: NSButton!
     private var statusLabel: NSTextField!
     private var modelPopUp: NSPopUpButton!
-    private var fallbackPopUp: NSPopUpButton!
-    private var fallbackModelPopUp: NSPopUpButton!
     private var progressIndicator: NSProgressIndicator!
 
-    // PDF Prompt tab
+    private var enableFallbackCheckbox: NSButton!
+    private var fallbackContainer: NSView!
+    private var fallbackPopUp: NSPopUpButton!
+    private var fallbackModelPopUp: NSPopUpButton!
+
+    // Prompts Tab
     private var presetPopUp: NSPopUpButton!
     private var presetDescriptionLabel: NSTextField!
-    private var systemPromptView: NSTextView!
-    private var templatePromptView: NSTextView!
+    private var showAdvancedPromptsCheckbox: NSButton!
+    private var advancedCollapsedHint: NSTextField!
+    private var advancedPromptsContainer: NSView!
+    private var promptScopeSegment: NSSegmentedControl!
+    private var promptSystemView: NSTextView!
+    private var promptTemplateView: NSTextView!
+    private var promptVarsHint: NSTextField!
+    private var resetPromptButton: NSButton!
 
-    // Gestures & Shortcuts UI
-    private var gesturePopUp: NSPopUpButton!
-    private var universalShortcutPopUp: NSPopUpButton!
-    private var recordUniversalButton: NSButton!
-    private var resetUniversalButton: NSButton!
-    private var tempUniversalShortcut: ShortcutConfig!
-
-    private var clipboardShortcutPopUp: NSPopUpButton!
-    private var recordClipboardButton: NSButton!
-    private var resetClipboardButton: NSButton!
-    private var tempClipboardShortcut: ShortcutConfig!
-
-    private var fourFingerSystemPromptView: NSTextView!
-    private var fourFingerTemplatePromptView: NSTextView!
-
-    // Behavior tab
-    private var enablePillCheckbox: NSButton!
-    private var enableContextCheckbox: NSButton!
-    private var contextShortcutPopUp: NSPopUpButton!
-    private var recordContextButton: NSButton!
-    private var resetContextButton: NSButton!
-    private var tempContextShortcut: ShortcutConfig!
-    private var permissionStatusLabel: NSTextField!
-    private var openPermissionButton: NSButton!
+    // Working buffers for prompt editor (0 = PDF, 1 = Universal)
+    private var draftPDFSystemPrompt: String = ""
+    private var draftPDFTemplate: String = ""
+    private var draftUniversalSystemPrompt: String = ""
+    private var draftUniversalTemplate: String = ""
+    private var activePromptScope: Int = 0
+    private var isUpdatingPromptViews: Bool = false
 
     // Interactive Key Recorder
     private enum ShortcutTarget {
@@ -65,18 +82,16 @@ public class SettingsWindowController: NSWindowController, NSTextViewDelegate {
     private var activeRecordingTarget: ShortcutTarget? = nil
     private var localKeyMonitor: Any? = nil
 
-    private var tabView: NSTabView!
-
     public init(config: AppConfig) {
         self.config = config
 
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 650, height: 575),
+            contentRect: NSRect(x: 0, y: 0, width: 600, height: 475),
             styleMask: [.titled, .closable, .miniaturizable],
             backing: .buffered,
             defer: false
         )
-        window.title = "PlatoReader Preferences"
+        window.title = "PlatoReader Settings"
         window.center()
         super.init(window: window)
 
@@ -89,186 +104,240 @@ public class SettingsWindowController: NSWindowController, NSTextViewDelegate {
     }
 
     private func setupUI() {
-        guard let window = self.window else { return }
-        let contentView = NSView(frame: window.contentView!.bounds)
-        contentView.autoresizingMask = [.width, .height]
-        window.contentView = contentView
+        guard let window = self.window, let contentView = window.contentView else { return }
 
-        tabView = NSTabView(frame: NSRect(x: 20, y: 60, width: 610, height: 495))
+        tabView = NSTabView(frame: NSRect(x: 20, y: 56, width: 560, height: 400))
         tabView.autoresizingMask = [.width, .height]
 
-        // 1. Tab AI & Models
+        let generalTab = NSTabViewItem(identifier: "general")
+        generalTab.label = "General"
+        generalTab.view = createGeneralTabView(frame: tabView.bounds)
+        tabView.addTabViewItem(generalTab)
+
         let aiTab = NSTabViewItem(identifier: "ai")
-        aiTab.label = "🤖 AI & Models"
+        aiTab.label = "AI"
         aiTab.view = createAITabView(frame: tabView.bounds)
         tabView.addTabViewItem(aiTab)
 
-        // 2. Tab Prompts (PDF)
-        let promptTab = NSTabViewItem(identifier: "prompts")
-        promptTab.label = "📖 PDF Prompts"
-        promptTab.view = createPromptTabView(frame: tabView.bounds)
-        tabView.addTabViewItem(promptTab)
-
-        // 3. Tab Gestures & Shortcuts
-        let fourFingerTab = NSTabViewItem(identifier: "fourfinger")
-        fourFingerTab.label = "🖐️ Gestures & Shortcuts"
-        fourFingerTab.view = createFourFingerTabView(frame: tabView.bounds)
-        tabView.addTabViewItem(fourFingerTab)
-
-        // 4. Tab Reading Behavior
-        let behaviorTab = NSTabViewItem(identifier: "behavior")
-        behaviorTab.label = "⚙️ Preferences"
-        behaviorTab.view = createBehaviorTabView(frame: tabView.bounds)
-        tabView.addTabViewItem(behaviorTab)
+        let promptsTab = NSTabViewItem(identifier: "prompts")
+        promptsTab.label = "Prompts"
+        promptsTab.view = createPromptsTabView(frame: tabView.bounds)
+        tabView.addTabViewItem(promptsTab)
 
         contentView.addSubview(tabView)
 
-        // Bottom Save Button
-        let saveButton = NSButton(frame: NSRect(x: 500, y: 16, width: 130, height: 32))
-        saveButton.title = "Save & Apply"
+        let saveButton = NSButton(frame: NSRect(x: 470, y: 14, width: 110, height: 30))
+        saveButton.title = "Save"
         saveButton.bezelStyle = .rounded
         saveButton.keyEquivalent = "\r"
         saveButton.target = self
         saveButton.action = #selector(saveAndClose)
         contentView.addSubview(saveButton)
 
-        let cancelBtn = NSButton(frame: NSRect(x: 400, y: 16, width: 90, height: 32))
+        let cancelBtn = NSButton(frame: NSRect(x: 375, y: 14, width: 85, height: 30))
         cancelBtn.title = "Cancel"
         cancelBtn.bezelStyle = .rounded
-        cancelBtn.keyEquivalent = "\u{1b}" // Esc
+        cancelBtn.keyEquivalent = "\u{1b}"
         cancelBtn.target = self
         cancelBtn.action = #selector(cancel)
         contentView.addSubview(cancelBtn)
     }
 
-    // MARK: - AI Tab Creation
+    // MARK: - General Tab (Reading, Gestures & Shortcuts)
+    private func createGeneralTabView(frame: NSRect) -> NSView {
+        let view = NSView(frame: frame)
+
+        let readingTitle = createLabel(text: "Reading", frame: NSRect(x: 18, y: 332, width: 200, height: 18), bold: true)
+        view.addSubview(readingTitle)
+
+        enablePillCheckbox = NSButton(checkboxWithTitle: "Show floating \"Explain\" button when text is selected", target: nil, action: nil)
+        enablePillCheckbox.frame = NSRect(x: 18, y: 304, width: 510, height: 22)
+        view.addSubview(enablePillCheckbox)
+
+        enableContextCheckbox = NSButton(checkboxWithTitle: "Include surrounding PDF page context in Preview", target: nil, action: nil)
+        enableContextCheckbox.frame = NSRect(x: 18, y: 278, width: 510, height: 22)
+        view.addSubview(enableContextCheckbox)
+
+        let sep1 = NSBox(frame: NSRect(x: 18, y: 264, width: 505, height: 1))
+        sep1.boxType = .separator
+        view.addSubview(sep1)
+
+        let triggerTitle = createLabel(text: "Shortcuts & Trackpad", frame: NSRect(x: 18, y: 236, width: 240, height: 18), bold: true)
+        view.addSubview(triggerTitle)
+
+        let gestureLabel = createLabel(text: "Trackpad Tap", frame: NSRect(x: 18, y: 204, width: 130, height: 20), bold: false)
+        view.addSubview(gestureLabel)
+
+        gesturePopUp = NSPopUpButton(frame: NSRect(x: 155, y: 201, width: 225, height: 26))
+        for mode in GestureFingerMode.allCases {
+            gesturePopUp.addItem(withTitle: mode.displayName)
+            gesturePopUp.lastItem?.representedObject = mode.rawValue
+        }
+        view.addSubview(gesturePopUp)
+
+        let uLabel = createLabel(text: "Explain Anywhere", frame: NSRect(x: 18, y: 168, width: 130, height: 20), bold: false)
+        view.addSubview(uLabel)
+        universalShortcutPopUp = NSPopUpButton(frame: NSRect(x: 155, y: 165, width: 225, height: 26))
+        view.addSubview(universalShortcutPopUp)
+        recordUniversalButton = createSmallButton(title: "Record", frame: NSRect(x: 388, y: 165, width: 72, height: 25), action: #selector(recordUniversalClicked))
+        view.addSubview(recordUniversalButton)
+        resetUniversalButton = createSmallButton(title: "Reset", frame: NSRect(x: 465, y: 165, width: 60, height: 25), action: #selector(resetUniversalClicked))
+        view.addSubview(resetUniversalButton)
+
+        let cLabel = createLabel(text: "Explain in PDF", frame: NSRect(x: 18, y: 134, width: 130, height: 20), bold: false)
+        view.addSubview(cLabel)
+        contextShortcutPopUp = NSPopUpButton(frame: NSRect(x: 155, y: 131, width: 225, height: 26))
+        view.addSubview(contextShortcutPopUp)
+        recordContextButton = createSmallButton(title: "Record", frame: NSRect(x: 388, y: 131, width: 72, height: 25), action: #selector(recordContextClicked))
+        view.addSubview(recordContextButton)
+        resetContextButton = createSmallButton(title: "Reset", frame: NSRect(x: 465, y: 131, width: 60, height: 25), action: #selector(resetContextClicked))
+        view.addSubview(resetContextButton)
+
+        let clLabel = createLabel(text: "Explain Copied Text", frame: NSRect(x: 18, y: 100, width: 130, height: 20), bold: false)
+        view.addSubview(clLabel)
+        clipboardShortcutPopUp = NSPopUpButton(frame: NSRect(x: 155, y: 97, width: 225, height: 26))
+        view.addSubview(clipboardShortcutPopUp)
+        recordClipboardButton = createSmallButton(title: "Record", frame: NSRect(x: 388, y: 97, width: 72, height: 25), action: #selector(recordClipboardClicked))
+        view.addSubview(recordClipboardButton)
+        resetClipboardButton = createSmallButton(title: "Reset", frame: NSRect(x: 465, y: 97, width: 60, height: 25), action: #selector(resetClipboardClicked))
+        view.addSubview(resetClipboardButton)
+
+        let shortcutNote = createLabel(text: "Tip: Pressing a shortcut with no text selected opens Quick Ask.", frame: NSRect(x: 155, y: 72, width: 375, height: 16), bold: false)
+        shortcutNote.font = NSFont.systemFont(ofSize: 11)
+        shortcutNote.textColor = NSColor.secondaryLabelColor
+        view.addSubview(shortcutNote)
+
+        let sep2 = NSBox(frame: NSRect(x: 18, y: 56, width: 505, height: 1))
+        sep2.boxType = .separator
+        view.addSubview(sep2)
+
+        permissionStatusLabel = createLabel(text: "", frame: NSRect(x: 18, y: 20, width: 320, height: 22), bold: false)
+        permissionStatusLabel.font = NSFont.systemFont(ofSize: 12)
+        view.addSubview(permissionStatusLabel)
+
+        openPermissionButton = NSButton(frame: NSRect(x: 365, y: 16, width: 160, height: 26))
+        openPermissionButton.title = "Accessibility Settings"
+        openPermissionButton.bezelStyle = .rounded
+        openPermissionButton.target = self
+        openPermissionButton.action = #selector(openAccessibilitySettings)
+        view.addSubview(openPermissionButton)
+
+        return view
+    }
+
+    // MARK: - AI Tab (Provider, Model, Optional Backup)
     private func createAITabView(frame: NSRect) -> NSView {
         let view = NSView(frame: frame)
 
-        // Provider Selector
-        let providerLabel = createLabel(text: "Select Primary Provider (API or Installed CLI):", frame: NSRect(x: 20, y: 395, width: 380, height: 20), bold: true)
+        let providerLabel = createLabel(text: "Provider", frame: NSRect(x: 18, y: 332, width: 200, height: 18), bold: true)
         view.addSubview(providerLabel)
 
         providerSegment = NSSegmentedControl(labels: ["Gemini", "Groq", "OpenRouter", "OpenAI", "OpenCode", "Antigravity"], trackingMode: .selectOne, target: self, action: #selector(providerChanged))
-        providerSegment.frame = NSRect(x: 15, y: 360, width: 575, height: 30)
+        providerSegment.frame = NSRect(x: 16, y: 298, width: 512, height: 28)
         view.addSubview(providerSegment)
 
-        // API Key / CLI Path Section
-        keyLabel = createLabel(text: "API Key for Selected Provider:", frame: NSRect(x: 20, y: 325, width: 420, height: 20), bold: true)
+        keyLabel = createLabel(text: "API Key", frame: NSRect(x: 18, y: 268, width: 350, height: 18), bold: false)
         view.addSubview(keyLabel)
 
-        apiKeyField = NSSecureTextField(frame: NSRect(x: 20, y: 295, width: 455, height: 24))
-        apiKeyField.placeholderString = "Paste API key here..."
+        apiKeyField = NSSecureTextField(frame: NSRect(x: 18, y: 240, width: 420, height: 24))
+        apiKeyField.placeholderString = "Paste API key..."
         view.addSubview(apiKeyField)
 
-        apiKeyPlainField = NSTextField(frame: NSRect(x: 20, y: 295, width: 455, height: 24))
-        apiKeyPlainField.placeholderString = "Paste API key here..."
+        apiKeyPlainField = NSTextField(frame: NSRect(x: 18, y: 240, width: 420, height: 24))
+        apiKeyPlainField.placeholderString = "Paste API key..."
         apiKeyPlainField.isHidden = true
         view.addSubview(apiKeyPlainField)
 
-        cliPathField = NSTextField(frame: NSRect(x: 20, y: 295, width: 455, height: 24))
-        cliPathField.placeholderString = "Auto-detect from PATH (or enter custom binary path)"
+        cliPathField = NSTextField(frame: NSRect(x: 18, y: 240, width: 420, height: 24))
+        cliPathField.placeholderString = "Auto-detected automatically"
         cliPathField.isHidden = true
         view.addSubview(cliPathField)
 
-        revealKeyButton = NSButton(frame: NSRect(x: 485, y: 293, width: 85, height: 26))
-        revealKeyButton.title = "👁️ Show"
-        revealKeyButton.bezelStyle = .rounded
-        revealKeyButton.target = self
-        revealKeyButton.action = #selector(toggleKeyReveal)
+        revealKeyButton = createSmallButton(title: "Show", frame: NSRect(x: 446, y: 239, width: 80, height: 25), action: #selector(toggleKeyReveal))
         view.addSubview(revealKeyButton)
 
-        cliBrowseButton = NSButton(frame: NSRect(x: 485, y: 293, width: 85, height: 26))
-        cliBrowseButton.title = "📂 Browse"
-        cliBrowseButton.bezelStyle = .rounded
-        cliBrowseButton.target = self
-        cliBrowseButton.action = #selector(browseCLIPath)
+        cliBrowseButton = createSmallButton(title: "Browse", frame: NSRect(x: 446, y: 239, width: 80, height: 25), action: #selector(browseCLIPath))
         cliBrowseButton.isHidden = true
         view.addSubview(cliBrowseButton)
 
-        getKeyLinkButton = NSButton(frame: NSRect(x: 20, y: 265, width: 280, height: 20))
-        getKeyLinkButton.title = "🔗 Get API Key from Provider →"
+        getKeyLinkButton = NSButton(frame: NSRect(x: 18, y: 214, width: 220, height: 18))
+        getKeyLinkButton.title = "Get API Key →"
         getKeyLinkButton.isBordered = false
         getKeyLinkButton.alignment = .left
+        getKeyLinkButton.font = NSFont.systemFont(ofSize: 11.5)
         getKeyLinkButton.contentTintColor = NSColor.linkColor
         getKeyLinkButton.target = self
         getKeyLinkButton.action = #selector(openKeyPortal)
         view.addSubview(getKeyLinkButton)
 
-        // Fetch Models & Test Button
-        testFetchButton = NSButton(frame: NSRect(x: 20, y: 225, width: 240, height: 32))
-        testFetchButton.title = "⚡ Test Key & Fetch Models"
+        let modelLabel = createLabel(text: "Model", frame: NSRect(x: 18, y: 182, width: 200, height: 18), bold: false)
+        view.addSubview(modelLabel)
+
+        modelPopUp = NSPopUpButton(frame: NSRect(x: 18, y: 152, width: 340, height: 26))
+        modelPopUp.target = self
+        modelPopUp.action = #selector(modelSelected)
+        view.addSubview(modelPopUp)
+
+        testFetchButton = NSButton(frame: NSRect(x: 366, y: 152, width: 160, height: 26))
+        testFetchButton.title = "Verify & Refresh"
         testFetchButton.bezelStyle = .rounded
         testFetchButton.target = self
         testFetchButton.action = #selector(testAndFetchModels)
         view.addSubview(testFetchButton)
 
-        progressIndicator = NSProgressIndicator(frame: NSRect(x: 270, y: 232, width: 18, height: 18))
+        progressIndicator = NSProgressIndicator(frame: NSRect(x: 18, y: 126, width: 16, height: 16))
         progressIndicator.style = .spinning
         progressIndicator.isDisplayedWhenStopped = false
         view.addSubview(progressIndicator)
 
-        statusLabel = createLabel(text: "", frame: NSRect(x: 296, y: 230, width: 290, height: 20), bold: false)
-        statusLabel.font = NSFont.systemFont(ofSize: 11)
+        statusLabel = createLabel(text: "", frame: NSRect(x: 38, y: 125, width: 488, height: 18), bold: false)
+        statusLabel.font = NSFont.systemFont(ofSize: 11.5)
         statusLabel.lineBreakMode = .byTruncatingMiddle
         view.addSubview(statusLabel)
 
-        // Active Model Dropdown
-        let modelLabel = createLabel(text: "Active Model for Selected Provider:", frame: NSRect(x: 20, y: 185, width: 320, height: 20), bold: true)
-        view.addSubview(modelLabel)
+        let sep = NSBox(frame: NSRect(x: 18, y: 108, width: 508, height: 1))
+        sep.boxType = .separator
+        view.addSubview(sep)
 
-        modelPopUp = NSPopUpButton(frame: NSRect(x: 20, y: 155, width: 550, height: 26))
-        modelPopUp.target = self
-        modelPopUp.action = #selector(modelSelected)
-        view.addSubview(modelPopUp)
+        // Toggleable Backup Provider
+        enableFallbackCheckbox = NSButton(checkboxWithTitle: "Use a backup provider if the main one fails", target: self, action: #selector(fallbackToggleChanged))
+        enableFallbackCheckbox.frame = NSRect(x: 18, y: 80, width: 420, height: 22)
+        view.addSubview(enableFallbackCheckbox)
 
-        // Fallback Section Box
-        let fallbackBox = NSBox(frame: NSRect(x: 20, y: 20, width: 550, height: 120))
-        fallbackBox.title = "🛡️ Automatic Failover Fallback"
-        let boxView = NSView(frame: fallbackBox.contentView!.bounds)
+        fallbackContainer = NSView(frame: NSRect(x: 18, y: 12, width: 510, height: 64))
+        let fbProviderLabel = createLabel(text: "Backup", frame: NSRect(x: 0, y: 36, width: 80, height: 20), bold: false)
+        fallbackContainer.addSubview(fbProviderLabel)
 
-        let fbDesc = createLabel(text: "If primary provider hits rate-limits or fails, PlatoReader fails over instantly without interrupting your reading.", frame: NSRect(x: 12, y: 65, width: 510, height: 30), bold: false)
-        fbDesc.font = NSFont.systemFont(ofSize: 11)
-        boxView.addSubview(fbDesc)
-
-        let fbProviderLabel = createLabel(text: "Fallback Provider:", frame: NSRect(x: 12, y: 35, width: 130, height: 20), bold: true)
-        fbProviderLabel.font = NSFont.systemFont(ofSize: 11)
-        boxView.addSubview(fbProviderLabel)
-
-        fallbackPopUp = NSPopUpButton(frame: NSRect(x: 145, y: 32, width: 190, height: 24))
-        fallbackPopUp.addItem(withTitle: "None (Disabled)")
-        fallbackPopUp.lastItem?.representedObject = "none"
+        fallbackPopUp = NSPopUpButton(frame: NSRect(x: 84, y: 33, width: 424, height: 26))
         for p in AIProvider.allCases {
             fallbackPopUp.addItem(withTitle: p.displayName)
             fallbackPopUp.lastItem?.representedObject = p.rawValue
         }
         fallbackPopUp.target = self
         fallbackPopUp.action = #selector(fallbackProviderChanged)
-        boxView.addSubview(fallbackPopUp)
+        fallbackContainer.addSubview(fallbackPopUp)
 
-        let fbModelLabel = createLabel(text: "Fallback Model:", frame: NSRect(x: 12, y: 8, width: 130, height: 20), bold: true)
-        fbModelLabel.font = NSFont.systemFont(ofSize: 11)
-        boxView.addSubview(fbModelLabel)
+        let fbModelLabel = createLabel(text: "Model", frame: NSRect(x: 0, y: 6, width: 80, height: 20), bold: false)
+        fallbackContainer.addSubview(fbModelLabel)
 
-        fallbackModelPopUp = NSPopUpButton(frame: NSRect(x: 145, y: 5, width: 375, height: 24))
+        fallbackModelPopUp = NSPopUpButton(frame: NSRect(x: 84, y: 3, width: 424, height: 26))
         fallbackModelPopUp.target = self
         fallbackModelPopUp.action = #selector(fallbackModelChanged)
-        boxView.addSubview(fallbackModelPopUp)
+        fallbackContainer.addSubview(fallbackModelPopUp)
 
-        fallbackBox.contentView = boxView
-        view.addSubview(fallbackBox)
+        view.addSubview(fallbackContainer)
 
         return view
     }
 
-    // MARK: - Prompt Tab Creation (PDF)
-    private func createPromptTabView(frame: NSRect) -> NSView {
+    // MARK: - Prompts Tab (Simple Style Picker + Toggleable Editor)
+    private func createPromptsTabView(frame: NSRect) -> NSView {
         let view = NSView(frame: frame)
 
-        let presetLabel = createLabel(text: "Choose Reading Preset for PDFs & Books:", frame: NSRect(x: 20, y: 400, width: 320, height: 20), bold: true)
+        let presetLabel = createLabel(text: "Reading Style (PDF)", frame: NSRect(x: 18, y: 332, width: 250, height: 18), bold: true)
         view.addSubview(presetLabel)
 
-        presetPopUp = NSPopUpButton(frame: NSRect(x: 20, y: 370, width: 530, height: 26))
+        presetPopUp = NSPopUpButton(frame: NSRect(x: 18, y: 300, width: 508, height: 26))
         for p in AppConfig.presets {
             presetPopUp.addItem(withTitle: p.title)
             presetPopUp.lastItem?.representedObject = p.id
@@ -277,235 +346,71 @@ public class SettingsWindowController: NSWindowController, NSTextViewDelegate {
         presetPopUp.action = #selector(presetChanged)
         view.addSubview(presetPopUp)
 
-        presetDescriptionLabel = createLabel(text: "", frame: NSRect(x: 20, y: 340, width: 530, height: 22), bold: false)
+        presetDescriptionLabel = createLabel(text: "", frame: NSRect(x: 18, y: 274, width: 508, height: 20), bold: false)
+        presetDescriptionLabel.font = NSFont.systemFont(ofSize: 11.5)
         presetDescriptionLabel.textColor = NSColor.secondaryLabelColor
         view.addSubview(presetDescriptionLabel)
 
-        let sysPromptLabel = createLabel(text: "System Instructions:", frame: NSRect(x: 20, y: 310, width: 200, height: 20), bold: true)
-        view.addSubview(sysPromptLabel)
+        let sep = NSBox(frame: NSRect(x: 18, y: 258, width: 508, height: 1))
+        sep.boxType = .separator
+        view.addSubview(sep)
 
-        let sysScroll = NSScrollView(frame: NSRect(x: 20, y: 195, width: 530, height: 110))
-        sysScroll.hasVerticalScroller = true
-        sysScroll.borderType = .bezelBorder
+        showAdvancedPromptsCheckbox = NSButton(checkboxWithTitle: "Customize prompt instructions (Advanced)", target: self, action: #selector(advancedPromptsToggled))
+        showAdvancedPromptsCheckbox.frame = NSRect(x: 18, y: 228, width: 400, height: 22)
+        view.addSubview(showAdvancedPromptsCheckbox)
 
-        systemPromptView = NSTextView(frame: NSRect(x: 0, y: 0, width: 530, height: 110))
-        systemPromptView.autoresizingMask = [.width]
-        systemPromptView.isRichText = false
-        systemPromptView.font = NSFont.monospacedSystemFont(ofSize: 11, weight: .regular)
-        sysScroll.documentView = systemPromptView
-        view.addSubview(sysScroll)
-
-        let templateLabel = createLabel(text: "Prompt Template (Variables: {selection}, {page_context}):", frame: NSRect(x: 20, y: 165, width: 500, height: 20), bold: true)
-        view.addSubview(templateLabel)
-
-        let templateScroll = NSScrollView(frame: NSRect(x: 20, y: 20, width: 530, height: 140))
-        templateScroll.hasVerticalScroller = true
-        templateScroll.borderType = .bezelBorder
-
-        templatePromptView = NSTextView(frame: NSRect(x: 0, y: 0, width: 530, height: 140))
-        templatePromptView.autoresizingMask = [.width]
-        templatePromptView.isRichText = false
-        templatePromptView.font = NSFont.monospacedSystemFont(ofSize: 11, weight: .regular)
-        templateScroll.documentView = templatePromptView
-        view.addSubview(templateScroll)
-
-        return view
-    }
-
-    // MARK: - Gestures & Universal Web Lookup Tab Creation
-    private func createFourFingerTabView(frame: NSRect) -> NSView {
-        let view = NSView(frame: frame)
-
-        // 1. Header & Description
-        let headerLabel = createLabel(text: "🖐️ 3/4-Finger Tap Gesture & Universal Lookup", frame: NSRect(x: 20, y: 412, width: 540, height: 22), bold: true)
-        headerLabel.font = NSFont.systemFont(ofSize: 14, weight: .bold)
-        view.addSubview(headerLabel)
-
-        let descLabel = createLabel(
-            text: "Highlight text in Chrome, Safari, Notes, or anywhere on macOS and tap with 3 or 4 fingers (or press your shortcut) to explain its meaning and real-world context with zero latency.",
-            frame: NSRect(x: 20, y: 382, width: 550, height: 28),
+        advancedCollapsedHint = createLabel(
+            text: "Using clean built-in prompts. Check the box above if you want to edit raw instructions.",
+            frame: NSRect(x: 38, y: 202, width: 480, height: 20),
             bold: false
         )
-        descLabel.font = NSFont.systemFont(ofSize: 11)
-        descLabel.textColor = NSColor.secondaryLabelColor
-        view.addSubview(descLabel)
+        advancedCollapsedHint.font = NSFont.systemFont(ofSize: 11.5)
+        advancedCollapsedHint.textColor = NSColor.secondaryLabelColor
+        view.addSubview(advancedCollapsedHint)
 
-        // 2. Gesture Selector Dropdown
-        let gestureLabel = createLabel(text: "Trackpad Tap Gesture:", frame: NSRect(x: 20, y: 350, width: 145, height: 20), bold: true)
-        view.addSubview(gestureLabel)
+        // Collapsible Advanced Editor Container
+        advancedPromptsContainer = NSView(frame: NSRect(x: 18, y: 10, width: 510, height: 212))
+        advancedPromptsContainer.isHidden = true
 
-        gesturePopUp = NSPopUpButton(frame: NSRect(x: 165, y: 347, width: 235, height: 26))
-        for mode in GestureFingerMode.allCases {
-            gesturePopUp.addItem(withTitle: mode.displayName)
-            gesturePopUp.lastItem?.representedObject = mode.rawValue
-        }
-        view.addSubview(gesturePopUp)
+        promptScopeSegment = NSSegmentedControl(labels: ["PDF Explanations", "Universal & Quick Ask"], trackingMode: .selectOne, target: self, action: #selector(promptScopeChanged))
+        promptScopeSegment.frame = NSRect(x: 0, y: 182, width: 320, height: 26)
+        promptScopeSegment.selectedSegment = 0
+        advancedPromptsContainer.addSubview(promptScopeSegment)
 
-        let gestureHint = createLabel(text: "Tap on trackpad triggers lookup", frame: NSRect(x: 410, y: 350, width: 170, height: 18), bold: false)
-        gestureHint.font = NSFont.systemFont(ofSize: 11)
-        gestureHint.textColor = NSColor.secondaryLabelColor
-        view.addSubview(gestureHint)
+        resetPromptButton = createSmallButton(title: "Reset Default", frame: NSRect(x: 398, y: 183, width: 110, height: 24), action: #selector(resetActivePromptClicked))
+        advancedPromptsContainer.addSubview(resetPromptButton)
 
-        // 3. Universal Keyboard Shortcut Section
-        let shortcutLabel = createLabel(text: "Universal Shortcut:", frame: NSRect(x: 20, y: 315, width: 145, height: 20), bold: true)
-        view.addSubview(shortcutLabel)
+        let sysLabel = createLabel(text: "Instructions", frame: NSRect(x: 0, y: 160, width: 200, height: 16), bold: false)
+        sysLabel.font = NSFont.systemFont(ofSize: 11.5, weight: .medium)
+        advancedPromptsContainer.addSubview(sysLabel)
 
-        universalShortcutPopUp = NSPopUpButton(frame: NSRect(x: 165, y: 312, width: 235, height: 26))
-        view.addSubview(universalShortcutPopUp)
-
-        recordUniversalButton = NSButton(frame: NSRect(x: 410, y: 311, width: 110, height: 26))
-        recordUniversalButton.title = "🎙️ Record Key"
-        recordUniversalButton.bezelStyle = .rounded
-        recordUniversalButton.target = self
-        recordUniversalButton.action = #selector(recordUniversalClicked)
-        view.addSubview(recordUniversalButton)
-
-        resetUniversalButton = NSButton(frame: NSRect(x: 525, y: 311, width: 55, height: 26))
-        resetUniversalButton.title = "↺ Reset"
-        resetUniversalButton.bezelStyle = .rounded
-        resetUniversalButton.target = self
-        resetUniversalButton.action = #selector(resetUniversalClicked)
-        view.addSubview(resetUniversalButton)
-
-        // 4. Clipboard Explain Shortcut Section (New Feature)
-        let clipboardLabel = createLabel(text: "Clipboard Shortcut:", frame: NSRect(x: 20, y: 280, width: 145, height: 20), bold: true)
-        view.addSubview(clipboardLabel)
-
-        clipboardShortcutPopUp = NSPopUpButton(frame: NSRect(x: 165, y: 277, width: 235, height: 26))
-        view.addSubview(clipboardShortcutPopUp)
-
-        recordClipboardButton = NSButton(frame: NSRect(x: 410, y: 276, width: 110, height: 26))
-        recordClipboardButton.title = "🎙️ Record Key"
-        recordClipboardButton.bezelStyle = .rounded
-        recordClipboardButton.target = self
-        recordClipboardButton.action = #selector(recordClipboardClicked)
-        view.addSubview(recordClipboardButton)
-
-        resetClipboardButton = NSButton(frame: NSRect(x: 525, y: 276, width: 55, height: 26))
-        resetClipboardButton.title = "↺ Reset"
-        resetClipboardButton.bezelStyle = .rounded
-        resetClipboardButton.target = self
-        resetClipboardButton.action = #selector(resetClipboardClicked)
-        view.addSubview(resetClipboardButton)
-
-        let clipboardHint = createLabel(text: "Explains recently copied text (⌘C) anytime using the 4-finger prompt.", frame: NSRect(x: 165, y: 258, width: 415, height: 16), bold: false)
-        clipboardHint.font = NSFont.systemFont(ofSize: 10)
-        clipboardHint.textColor = NSColor.secondaryLabelColor
-        view.addSubview(clipboardHint)
-
-        // 5. System Prompt Section
-        let sysLabel = createLabel(text: "System Instructions (Universal Explainer):", frame: NSRect(x: 20, y: 235, width: 450, height: 18), bold: true)
-        view.addSubview(sysLabel)
-
-        let sysScroll = NSScrollView(frame: NSRect(x: 20, y: 148, width: 550, height: 85))
+        let sysScroll = NSScrollView(frame: NSRect(x: 0, y: 88, width: 508, height: 68))
         sysScroll.hasVerticalScroller = true
         sysScroll.borderType = .bezelBorder
+        promptSystemView = NSTextView(frame: NSRect(x: 0, y: 0, width: 508, height: 68))
+        promptSystemView.autoresizingMask = [.width]
+        promptSystemView.isRichText = false
+        promptSystemView.font = NSFont.monospacedSystemFont(ofSize: 11, weight: .regular)
+        promptSystemView.delegate = self
+        sysScroll.documentView = promptSystemView
+        advancedPromptsContainer.addSubview(sysScroll)
 
-        fourFingerSystemPromptView = NSTextView(frame: NSRect(x: 0, y: 0, width: 550, height: 85))
-        fourFingerSystemPromptView.autoresizingMask = [.width]
-        fourFingerSystemPromptView.isRichText = false
-        fourFingerSystemPromptView.font = NSFont.monospacedSystemFont(ofSize: 11, weight: .regular)
-        sysScroll.documentView = fourFingerSystemPromptView
-        view.addSubview(sysScroll)
+        promptVarsHint = createLabel(text: "Template ({selection}, {page_context})", frame: NSRect(x: 0, y: 66, width: 380, height: 16), bold: false)
+        promptVarsHint.font = NSFont.systemFont(ofSize: 11.5, weight: .medium)
+        advancedPromptsContainer.addSubview(promptVarsHint)
 
-        // 6. Prompt Template Section
-        let templateLabel = createLabel(text: "Prompt Template (Variable: {selection}):", frame: NSRect(x: 20, y: 122, width: 530, height: 18), bold: true)
-        view.addSubview(templateLabel)
+        let tmplScroll = NSScrollView(frame: NSRect(x: 0, y: 0, width: 508, height: 62))
+        tmplScroll.hasVerticalScroller = true
+        tmplScroll.borderType = .bezelBorder
+        promptTemplateView = NSTextView(frame: NSRect(x: 0, y: 0, width: 508, height: 62))
+        promptTemplateView.autoresizingMask = [.width]
+        promptTemplateView.isRichText = false
+        promptTemplateView.font = NSFont.monospacedSystemFont(ofSize: 11, weight: .regular)
+        promptTemplateView.delegate = self
+        tmplScroll.documentView = promptTemplateView
+        advancedPromptsContainer.addSubview(tmplScroll)
 
-        let templateScroll = NSScrollView(frame: NSRect(x: 20, y: 45, width: 550, height: 75))
-        templateScroll.hasVerticalScroller = true
-        templateScroll.borderType = .bezelBorder
-
-        fourFingerTemplatePromptView = NSTextView(frame: NSRect(x: 0, y: 0, width: 550, height: 75))
-        fourFingerTemplatePromptView.autoresizingMask = [.width]
-        fourFingerTemplatePromptView.isRichText = false
-        fourFingerTemplatePromptView.font = NSFont.monospacedSystemFont(ofSize: 11, weight: .regular)
-        templateScroll.documentView = fourFingerTemplatePromptView
-        view.addSubview(templateScroll)
-
-        // 7. Reset Prompt Button & Privacy Notice
-        let resetBtn = NSButton(frame: NSRect(x: 20, y: 12, width: 195, height: 26))
-        resetBtn.title = "🔄 Reset Prompt to Default"
-        resetBtn.bezelStyle = .rounded
-        resetBtn.target = self
-        resetBtn.action = #selector(resetFourFingerPromptClicked)
-        view.addSubview(resetBtn)
-
-        let privacyNote = createLabel(text: "🔒 Privacy: Only highlighted or copied text is sent. Background tabs are never read.", frame: NSRect(x: 225, y: 14, width: 345, height: 22), bold: false)
-        privacyNote.font = NSFont.systemFont(ofSize: 10, weight: .semibold)
-        privacyNote.textColor = NSColor.secondaryLabelColor
-        view.addSubview(privacyNote)
-
-        return view
-    }
-
-    // MARK: - Behavior Tab Creation
-    private func createBehaviorTabView(frame: NSRect) -> NSView {
-        let view = NSView(frame: frame)
-
-        enablePillCheckbox = NSButton(checkboxWithTitle: "Show floating '💡 Explain' button above selected text in Preview", target: nil, action: nil)
-        enablePillCheckbox.frame = NSRect(x: 20, y: 405, width: 500, height: 24)
-        view.addSubview(enablePillCheckbox)
-
-        enableContextCheckbox = NSButton(checkboxWithTitle: "Read surrounding page context from PDF in Preview automatically", target: nil, action: nil)
-        enableContextCheckbox.frame = NSRect(x: 20, y: 375, width: 500, height: 24)
-        view.addSubview(enableContextCheckbox)
-
-        // PDF Context Shortcut Configuration
-        let contextLabel = createLabel(text: "PDF Context Shortcut:", frame: NSRect(x: 20, y: 335, width: 150, height: 20), bold: true)
-        view.addSubview(contextLabel)
-
-        contextShortcutPopUp = NSPopUpButton(frame: NSRect(x: 175, y: 332, width: 225, height: 26))
-        view.addSubview(contextShortcutPopUp)
-
-        recordContextButton = NSButton(frame: NSRect(x: 410, y: 331, width: 110, height: 26))
-        recordContextButton.title = "🎙️ Record Key"
-        recordContextButton.bezelStyle = .rounded
-        recordContextButton.target = self
-        recordContextButton.action = #selector(recordContextClicked)
-        view.addSubview(recordContextButton)
-
-        resetContextButton = NSButton(frame: NSRect(x: 525, y: 331, width: 55, height: 26))
-        resetContextButton.title = "↺ Reset"
-        resetContextButton.bezelStyle = .rounded
-        resetContextButton.target = self
-        resetContextButton.action = #selector(resetContextClicked)
-        view.addSubview(resetContextButton)
-
-        // Shortcut & Gesture Reference Box
-        let shortcutBox = NSBox(frame: NSRect(x: 20, y: 160, width: 550, height: 155))
-        shortcutBox.title = "Keyboard Shortcuts & Trackpad Gestures"
-        let boxView = NSView(frame: shortcutBox.contentView!.bounds)
-
-        let scDesc = createLabel(
-            text: "• PDF Context Explain: Triggers explanation with surrounding page context in Preview.\n• Universal Web Lookup: Explains any highlighted word or passage across all apps.\n• Trackpad: Supports 3-finger or 4-finger tap according to your configuration.\n• Customizable Shortcuts: Use presets or click 'Record Key' to set any key combo.\n• 📌 Pin Card: Anchors the floating explanation card in place while reading.",
-            frame: NSRect(x: 12, y: 8, width: 525, height: 115),
-            bold: false
-        )
-        scDesc.font = NSFont.systemFont(ofSize: 12)
-        boxView.addSubview(scDesc)
-        shortcutBox.contentView = boxView
-        view.addSubview(shortcutBox)
-
-        // Accessibility Section
-        let permBox = NSBox(frame: NSRect(x: 20, y: 30, width: 550, height: 115))
-        permBox.title = "macOS Accessibility Permission"
-        let pView = NSView(frame: permBox.contentView!.bounds)
-
-        permissionStatusLabel = createLabel(text: "", frame: NSRect(x: 12, y: 45, width: 300, height: 24), bold: true)
-        pView.addSubview(permissionStatusLabel)
-
-        openPermissionButton = NSButton(frame: NSRect(x: 340, y: 40, width: 170, height: 30))
-        openPermissionButton.title = "Open System Settings"
-        openPermissionButton.bezelStyle = .rounded
-        openPermissionButton.target = self
-        openPermissionButton.action = #selector(openAccessibilitySettings)
-        pView.addSubview(openPermissionButton)
-
-        permBox.contentView = pView
-        view.addSubview(permBox)
-
-        updatePermissionStatus()
+        view.addSubview(advancedPromptsContainer)
 
         return view
     }
@@ -516,39 +421,25 @@ public class SettingsWindowController: NSWindowController, NSTextViewDelegate {
         label.isEditable = false
         label.isBordered = false
         label.backgroundColor = .clear
-        label.font = bold ? NSFont.systemFont(ofSize: 13, weight: .semibold) : NSFont.systemFont(ofSize: 13)
+        label.font = bold ? NSFont.systemFont(ofSize: 13, weight: .semibold) : NSFont.systemFont(ofSize: 12.5)
         return label
+    }
+
+    private func createSmallButton(title: String, frame: NSRect, action: Selector) -> NSButton {
+        let btn = NSButton(frame: frame)
+        btn.title = title
+        btn.bezelStyle = .rounded
+        btn.target = self
+        btn.action = action
+        return btn
     }
 
     // MARK: - Load & Sync Values
     private func loadValues() {
-        if let idx = AIProvider.allCases.firstIndex(of: config.selectedProvider) {
-            providerSegment.selectedSegment = idx
-        } else {
-            providerSegment.selectedSegment = 0
-        }
+        // General
+        enablePillCheckbox.state = config.enableFloatingPill ? .on : .off
+        enableContextCheckbox.state = config.enablePageContext ? .on : .off
 
-        updateKeyAndLink()
-        refreshModelList()
-
-        // Fallback popup
-        let fbStr = config.fallbackProvider?.rawValue ?? "none"
-        for item in fallbackPopUp.itemArray {
-            if (item.representedObject as? String) == fbStr {
-                fallbackPopUp.select(item)
-                break
-            }
-        }
-        refreshFallbackModelList()
-
-        if let idx = AppConfig.presets.firstIndex(where: { $0.id == config.activePresetId }) {
-            presetPopUp.selectItem(at: idx)
-            presetDescriptionLabel.stringValue = AppConfig.presets[idx].description
-        }
-        systemPromptView.string = config.activeSystemPrompt()
-        templatePromptView.string = config.activePromptTemplate()
-
-        // Gestures & Shortcuts values
         for item in gesturePopUp.itemArray {
             if (item.representedObject as? String) == config.fingerTapMode.rawValue {
                 gesturePopUp.select(item)
@@ -559,19 +450,137 @@ public class SettingsWindowController: NSWindowController, NSTextViewDelegate {
         tempUniversalShortcut = config.universalShortcut
         populateShortcutPopUp(universalShortcutPopUp, current: tempUniversalShortcut, action: #selector(universalPresetChanged))
 
-        tempClipboardShortcut = config.clipboardShortcut
-        populateShortcutPopUp(clipboardShortcutPopUp, current: tempClipboardShortcut, action: #selector(clipboardPresetChanged))
-
         tempContextShortcut = config.contextShortcut
         populateShortcutPopUp(contextShortcutPopUp, current: tempContextShortcut, action: #selector(contextPresetChanged))
 
-        fourFingerSystemPromptView.string = config.activeFourFingerSystemPrompt()
-        fourFingerTemplatePromptView.string = config.activeFourFingerPromptTemplate()
-
-        enablePillCheckbox.state = config.enableFloatingPill ? .on : .off
-        enableContextCheckbox.state = config.enablePageContext ? .on : .off
+        tempClipboardShortcut = config.clipboardShortcut
+        populateShortcutPopUp(clipboardShortcutPopUp, current: tempClipboardShortcut, action: #selector(clipboardPresetChanged))
 
         updatePermissionStatus()
+
+        // AI
+        if let idx = AIProvider.allCases.firstIndex(of: config.selectedProvider) {
+            providerSegment.selectedSegment = idx
+        } else {
+            providerSegment.selectedSegment = 0
+        }
+
+        updateKeyAndLink()
+        refreshModelList()
+
+        let hasFallback = config.fallbackProvider != nil
+        enableFallbackCheckbox.state = hasFallback ? .on : .off
+        if let fb = config.fallbackProvider {
+            for item in fallbackPopUp.itemArray {
+                if (item.representedObject as? String) == fb.rawValue {
+                    fallbackPopUp.select(item)
+                    break
+                }
+            }
+        }
+        updateFallbackVisibility()
+        refreshFallbackModelList()
+
+        // Prompts
+        if let idx = AppConfig.presets.firstIndex(where: { $0.id == config.activePresetId }) {
+            presetPopUp.selectItem(at: idx)
+            presetDescriptionLabel.stringValue = AppConfig.presets[idx].description
+        }
+        draftPDFSystemPrompt = config.activeSystemPrompt()
+        draftPDFTemplate = config.activePromptTemplate()
+        draftUniversalSystemPrompt = config.activeFourFingerSystemPrompt()
+        draftUniversalTemplate = config.activeFourFingerPromptTemplate()
+
+        showAdvancedPromptsCheckbox.state = .off
+        updateAdvancedPromptsVisibility()
+        syncPromptEditorViews()
+    }
+
+    // MARK: - Prompt Editor Visibility & Sync
+    @objc private func advancedPromptsToggled() {
+        updateAdvancedPromptsVisibility()
+    }
+
+    private func updateAdvancedPromptsVisibility() {
+        let expanded = (showAdvancedPromptsCheckbox.state == .on)
+        advancedPromptsContainer.isHidden = !expanded
+        advancedCollapsedHint.isHidden = expanded
+    }
+
+    @objc private func promptScopeChanged() {
+        saveActivePromptViewToDraft()
+        activePromptScope = promptScopeSegment.selectedSegment
+        syncPromptEditorViews()
+    }
+
+    private func saveActivePromptViewToDraft() {
+        if activePromptScope == 0 {
+            draftPDFSystemPrompt = promptSystemView.string
+            draftPDFTemplate = promptTemplateView.string
+        } else {
+            draftUniversalSystemPrompt = promptSystemView.string
+            draftUniversalTemplate = promptTemplateView.string
+        }
+    }
+
+    private func syncPromptEditorViews() {
+        isUpdatingPromptViews = true
+        if activePromptScope == 0 {
+            promptSystemView.string = draftPDFSystemPrompt
+            promptTemplateView.string = draftPDFTemplate
+            promptVarsHint.stringValue = "Template ({selection}, {page_context})"
+        } else {
+            promptSystemView.string = draftUniversalSystemPrompt
+            promptTemplateView.string = draftUniversalTemplate
+            promptVarsHint.stringValue = "Template ({selection})"
+        }
+        isUpdatingPromptViews = false
+    }
+
+    public func textDidChange(_ notification: Notification) {
+        guard !isUpdatingPromptViews else { return }
+        saveActivePromptViewToDraft()
+        if activePromptScope == 0 && config.activePresetId != "custom" {
+            config.activePresetId = "custom"
+            if let customIdx = AppConfig.presets.firstIndex(where: { $0.id == "custom" }) {
+                presetPopUp.selectItem(at: customIdx)
+                presetDescriptionLabel.stringValue = AppConfig.presets[customIdx].description
+            }
+        }
+    }
+
+    @objc private func presetChanged() {
+        guard let item = presetPopUp.selectedItem, let repr = item.representedObject as? String else { return }
+        config.activePresetId = repr
+        if let p = AppConfig.presets.first(where: { $0.id == repr }) {
+            presetDescriptionLabel.stringValue = p.description
+            if repr == "custom" {
+                draftPDFSystemPrompt = config.customSystemPrompt
+                draftPDFTemplate = config.customPromptTemplate
+            } else {
+                draftPDFSystemPrompt = p.systemPrompt
+                draftPDFTemplate = p.template
+            }
+            if activePromptScope == 0 {
+                syncPromptEditorViews()
+            }
+        }
+    }
+
+    @objc private func resetActivePromptClicked() {
+        if activePromptScope == 0 {
+            if let def = AppConfig.presets.first(where: { $0.id == "concise_context" }) {
+                config.activePresetId = def.id
+                presetPopUp.selectItem(at: 0)
+                presetDescriptionLabel.stringValue = def.description
+                draftPDFSystemPrompt = def.systemPrompt
+                draftPDFTemplate = def.template
+            }
+        } else {
+            draftUniversalSystemPrompt = AppConfig.defaultFourFingerSystemPrompt
+            draftUniversalTemplate = AppConfig.defaultFourFingerPromptTemplate
+        }
+        syncPromptEditorViews()
     }
 
     // MARK: - Shortcut Management & Recording
@@ -581,7 +590,7 @@ public class SettingsWindowController: NSWindowController, NSTextViewDelegate {
             popUp.addItem(withTitle: p.displayString)
             popUp.lastItem?.representedObject = p
         }
-        popUp.addItem(withTitle: "Custom Key Combination...")
+        popUp.addItem(withTitle: "Custom...")
         popUp.lastItem?.representedObject = nil
         popUp.target = self
         popUp.action = action
@@ -597,11 +606,9 @@ public class SettingsWindowController: NSWindowController, NSTextViewDelegate {
                 break
             }
         }
-        if !matched {
-            if let customItem = popUp.itemArray.last {
-                customItem.title = "Custom: \(current.displayString)"
-                popUp.select(customItem)
-            }
+        if !matched, let customItem = popUp.itemArray.last {
+            customItem.title = "Custom: \(current.displayString)"
+            popUp.select(customItem)
         }
     }
 
@@ -633,27 +640,15 @@ public class SettingsWindowController: NSWindowController, NSTextViewDelegate {
     }
 
     @objc private func recordUniversalClicked() {
-        if activeRecordingTarget == .universal {
-            stopRecording()
-        } else {
-            startRecording(target: .universal)
-        }
+        activeRecordingTarget == .universal ? stopRecording() : startRecording(target: .universal)
     }
 
     @objc private func recordClipboardClicked() {
-        if activeRecordingTarget == .clipboard {
-            stopRecording()
-        } else {
-            startRecording(target: .clipboard)
-        }
+        activeRecordingTarget == .clipboard ? stopRecording() : startRecording(target: .clipboard)
     }
 
     @objc private func recordContextClicked() {
-        if activeRecordingTarget == .context {
-            stopRecording()
-        } else {
-            startRecording(target: .context)
-        }
+        activeRecordingTarget == .context ? stopRecording() : startRecording(target: .context)
     }
 
     @objc private func resetUniversalClicked() {
@@ -679,11 +674,11 @@ public class SettingsWindowController: NSWindowController, NSTextViewDelegate {
         activeRecordingTarget = target
 
         if target == .universal {
-            recordUniversalButton.title = "⌨️ Press Keys (Esc)"
+            recordUniversalButton.title = "Press Keys"
         } else if target == .clipboard {
-            recordClipboardButton.title = "⌨️ Press Keys (Esc)"
+            recordClipboardButton.title = "Press Keys"
         } else {
-            recordContextButton.title = "⌨️ Press Keys (Esc)"
+            recordContextButton.title = "Press Keys"
         }
 
         localKeyMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown]) { [weak self] event in
@@ -724,16 +719,12 @@ public class SettingsWindowController: NSWindowController, NSTextViewDelegate {
             localKeyMonitor = nil
         }
         activeRecordingTarget = nil
-        recordUniversalButton?.title = "🎙️ Record Key"
-        recordClipboardButton?.title = "🎙️ Record Key"
-        recordContextButton?.title = "🎙️ Record Key"
+        recordUniversalButton?.title = "Record"
+        recordClipboardButton?.title = "Record"
+        recordContextButton?.title = "Record"
     }
 
-    @objc private func resetFourFingerPromptClicked() {
-        fourFingerSystemPromptView.string = AppConfig.defaultFourFingerSystemPrompt
-        fourFingerTemplatePromptView.string = AppConfig.defaultFourFingerPromptTemplate
-    }
-
+    // MARK: - AI Provider & Models
     @objc private func providerChanged() {
         saveCurrentKeyToMemory()
 
@@ -749,7 +740,7 @@ public class SettingsWindowController: NSWindowController, NSTextViewDelegate {
     private func updateKeyAndLink() {
         let provider = config.selectedProvider
         if provider.isCLIProvider {
-            keyLabel.stringValue = "CLI Executable Path (Leave blank for auto-detect):"
+            keyLabel.stringValue = "CLI Path (optional)"
             apiKeyField.isHidden = true
             apiKeyPlainField.isHidden = true
             revealKeyButton.isHidden = true
@@ -760,19 +751,19 @@ public class SettingsWindowController: NSWindowController, NSTextViewDelegate {
             cliPathField.stringValue = savedPath
             if let resolved = config.resolveCLIPath(for: provider) {
                 cliPathField.placeholderString = "Auto-detected: \(resolved)"
-                statusLabel.stringValue = "🟢 Detected: \(resolved)"
+                statusLabel.stringValue = "Detected at \(resolved)"
                 statusLabel.textColor = NSColor.systemGreen
             } else {
                 let exe = provider.cliExecutableName ?? provider.rawValue
-                cliPathField.placeholderString = "Enter full path to '\(exe)' binary..."
-                statusLabel.stringValue = "🔴 '\(exe)' not found in PATH"
+                cliPathField.placeholderString = "Path to '\(exe)' binary..."
+                statusLabel.stringValue = "'\(exe)' not found"
                 statusLabel.textColor = NSColor.systemRed
             }
 
-            getKeyLinkButton.title = "📖 View \(provider.displayName) Docs →"
-            testFetchButton.title = "⚡ Detect CLI & Fetch Models"
+            getKeyLinkButton.title = "\(provider.shortDisplayName) Docs →"
+            testFetchButton.title = "Detect & Refresh"
         } else {
-            keyLabel.stringValue = "API Key for Selected Provider:"
+            keyLabel.stringValue = "API Key"
             cliPathField.isHidden = true
             cliBrowseButton.isHidden = true
             revealKeyButton.isHidden = false
@@ -782,8 +773,8 @@ public class SettingsWindowController: NSWindowController, NSTextViewDelegate {
             let currentKey = config.apiKeys[provider.rawValue] ?? ""
             apiKeyField.stringValue = currentKey
             apiKeyPlainField.stringValue = currentKey
-            getKeyLinkButton.title = "🔗 Get \(provider.displayName) API Key →"
-            testFetchButton.title = "⚡ Test Key & Fetch Models"
+            getKeyLinkButton.title = "Get \(provider.shortDisplayName) API Key →"
+            testFetchButton.title = "Verify & Refresh"
             statusLabel.stringValue = ""
         }
     }
@@ -807,12 +798,12 @@ public class SettingsWindowController: NSWindowController, NSTextViewDelegate {
             apiKeyPlainField.stringValue = apiKeyField.stringValue
             apiKeyPlainField.isHidden = false
             apiKeyField.isHidden = true
-            revealKeyButton.title = "🔒 Hide"
+            revealKeyButton.title = "Hide"
         } else {
             apiKeyField.stringValue = apiKeyPlainField.stringValue
             apiKeyField.isHidden = false
             apiKeyPlainField.isHidden = true
-            revealKeyButton.title = "👁️ Show"
+            revealKeyButton.title = "Show"
         }
     }
 
@@ -846,19 +837,19 @@ public class SettingsWindowController: NSWindowController, NSTextViewDelegate {
         if provider.isCLIProvider {
             guard config.resolveCLIPath(for: provider, overridePath: customPath) != nil else {
                 let exe = provider.cliExecutableName ?? provider.rawValue
-                statusLabel.stringValue = "⚠️ '\(exe)' CLI not found."
+                statusLabel.stringValue = "'\(exe)' not found."
                 statusLabel.textColor = NSColor.systemRed
                 return
             }
         } else if key.isEmpty {
-            statusLabel.stringValue = "⚠️ Please enter an API key first."
+            statusLabel.stringValue = "Please enter an API key first."
             statusLabel.textColor = NSColor.systemRed
             return
         }
 
         testFetchButton.isEnabled = false
         progressIndicator.startAnimation(nil)
-        statusLabel.stringValue = provider.isCLIProvider ? "Inspecting \(provider.shortDisplayName) models..." : "Fetching available models..."
+        statusLabel.stringValue = "Checking..."
         statusLabel.textColor = NSColor.secondaryLabelColor
 
         AIService.shared.fetchModels(provider: provider, apiKey: key, cliPath: customPath) { [weak self] result in
@@ -871,12 +862,11 @@ public class SettingsWindowController: NSWindowController, NSTextViewDelegate {
                 self.config.cachedModels[provider.rawValue] = models
                 self.refreshModelList()
                 self.refreshFallbackModelList()
-                let prefix = provider.isCLIProvider ? "✅ CLI ready!" : "✅ Key valid!"
-                self.statusLabel.stringValue = "\(prefix) Found \(models.count) models."
+                self.statusLabel.stringValue = "Ready — \(models.count) models loaded."
                 self.statusLabel.textColor = NSColor.systemGreen
                 self.config.save()
             case .failure(let error):
-                self.statusLabel.stringValue = "❌ " + error.localizedDescription
+                self.statusLabel.stringValue = error.localizedDescription
                 self.statusLabel.textColor = NSColor.systemRed
             }
         }
@@ -919,15 +909,34 @@ public class SettingsWindowController: NSWindowController, NSTextViewDelegate {
         }
     }
 
-    @objc private func fallbackProviderChanged() {
-        guard let item = fallbackPopUp.selectedItem, let repr = item.representedObject as? String else { return }
-        if repr == "none" {
+    @objc private func fallbackToggleChanged() {
+        if enableFallbackCheckbox.state == .on {
+            if config.fallbackProvider == nil {
+                if let repr = fallbackPopUp.selectedItem?.representedObject as? String,
+                   let p = AIProvider(rawValue: repr) {
+                    config.fallbackProvider = p
+                } else {
+                    config.fallbackProvider = .groq
+                }
+            }
+        } else {
             config.fallbackProvider = nil
-            config.fallbackModel = nil
-        } else if let p = AIProvider(rawValue: repr) {
-            config.fallbackProvider = p
-            config.fallbackModel = config.selectedModels[p.rawValue] ?? p.defaultModel
         }
+        updateFallbackVisibility()
+        refreshFallbackModelList()
+    }
+
+    private func updateFallbackVisibility() {
+        fallbackContainer.isHidden = (enableFallbackCheckbox.state != .on)
+    }
+
+    @objc private func fallbackProviderChanged() {
+        guard enableFallbackCheckbox.state == .on,
+              let item = fallbackPopUp.selectedItem,
+              let repr = item.representedObject as? String,
+              let p = AIProvider(rawValue: repr) else { return }
+        config.fallbackProvider = p
+        config.fallbackModel = config.selectedModels[p.rawValue] ?? p.defaultModel
         refreshFallbackModelList()
     }
 
@@ -937,23 +946,12 @@ public class SettingsWindowController: NSWindowController, NSTextViewDelegate {
         }
     }
 
-    @objc private func presetChanged() {
-        guard let item = presetPopUp.selectedItem, let repr = item.representedObject as? String else { return }
-        config.activePresetId = repr
-        if let p = AppConfig.presets.first(where: { $0.id == repr }) {
-            presetDescriptionLabel.stringValue = p.description
-            systemPromptView.string = p.systemPrompt
-            templatePromptView.string = p.template
-        }
-    }
-
     private func refreshFallbackModelList() {
         fallbackModelPopUp.removeAllItems()
-        guard let fbSelected = fallbackPopUp.selectedItem?.representedObject as? String,
-              fbSelected != "none",
+        guard enableFallbackCheckbox.state == .on,
+              let fbSelected = fallbackPopUp.selectedItem?.representedObject as? String,
               let provider = AIProvider(rawValue: fbSelected) else {
             fallbackModelPopUp.isEnabled = false
-            fallbackModelPopUp.addItem(withTitle: "No fallback active")
             return
         }
 
@@ -993,29 +991,36 @@ public class SettingsWindowController: NSWindowController, NSTextViewDelegate {
     public func updatePermissionStatus() {
         let granted = AccessibilityHelper.isAccessibilityTrusted()
         if granted {
-            permissionStatusLabel.stringValue = "🟢 Permission Granted"
+            permissionStatusLabel.stringValue = "Accessibility: Granted"
             permissionStatusLabel.textColor = NSColor.systemGreen
-            openPermissionButton.title = "Re-check Permission"
+            openPermissionButton.title = "Re-check"
         } else {
-            permissionStatusLabel.stringValue = "🔴 Permission Needed"
+            permissionStatusLabel.stringValue = "Accessibility: Needed for text selection"
             permissionStatusLabel.textColor = NSColor.systemRed
-            openPermissionButton.title = "Grant in Settings"
+            openPermissionButton.title = "Open Settings"
         }
     }
 
     @objc private func saveAndClose() {
         stopRecording()
         saveCurrentKeyToMemory()
+        saveActivePromptViewToDraft()
 
-        if config.fallbackProvider != nil,
-           let fbModelId = fallbackModelPopUp.selectedItem?.representedObject as? String {
-            config.fallbackModel = fbModelId
+        if enableFallbackCheckbox.state == .on {
+            if let repr = fallbackPopUp.selectedItem?.representedObject as? String,
+               let p = AIProvider(rawValue: repr) {
+                config.fallbackProvider = p
+                if let fbModelId = fallbackModelPopUp.selectedItem?.representedObject as? String {
+                    config.fallbackModel = fbModelId
+                }
+            }
+        } else {
+            config.fallbackProvider = nil
         }
 
         config.enableFloatingPill = (enablePillCheckbox.state == .on)
         config.enablePageContext = (enableContextCheckbox.state == .on)
 
-        // Save Gestures & Shortcuts
         if let gestureRaw = gesturePopUp.selectedItem?.representedObject as? String,
            let mode = GestureFingerMode(rawValue: gestureRaw) {
             config.fingerTapMode = mode
@@ -1036,13 +1041,12 @@ public class SettingsWindowController: NSWindowController, NSTextViewDelegate {
             config.hotkeyString = cSc.displayString
         }
 
-        // Save Prompts
-        config.fourFingerSystemPrompt = fourFingerSystemPromptView.string
-        config.fourFingerPromptTemplate = fourFingerTemplatePromptView.string
+        config.fourFingerSystemPrompt = draftUniversalSystemPrompt
+        config.fourFingerPromptTemplate = draftUniversalTemplate
 
         if config.activePresetId == "custom" {
-            config.customSystemPrompt = systemPromptView.string
-            config.customPromptTemplate = templatePromptView.string
+            config.customSystemPrompt = draftPDFSystemPrompt
+            config.customPromptTemplate = draftPDFTemplate
         }
 
         config.save()

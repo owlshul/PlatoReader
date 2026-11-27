@@ -107,8 +107,13 @@ class AppDelegate: NSObject, NSApplicationDelegate, FloatingPillDelegate, Explan
     private func setupStatusBar() {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         if let button = statusItem.button {
-            button.title = "📖"
-            button.toolTip = "Reading Companion • AI Explanation for Preview & Web"
+            if let img = NSImage(systemSymbolName: "book", accessibilityDescription: "PlatoReader") {
+                img.isTemplate = true
+                button.image = img
+            } else {
+                button.title = "Plato"
+            }
+            button.toolTip = "PlatoReader"
         }
         updateStatusMenu()
     }
@@ -116,22 +121,27 @@ class AppDelegate: NSObject, NSApplicationDelegate, FloatingPillDelegate, Explan
     private func updateStatusMenu() {
         let menu = NSMenu()
 
-        let titleItem = NSMenuItem(title: "📖 Reading Companion", action: nil, keyEquivalent: "")
-        titleItem.isEnabled = false
-        menu.addItem(titleItem)
+        let askAnythingItem = NSMenuItem(title: "Ask a Question...", action: #selector(triggerAskManually), keyEquivalent: "")
+        askAnythingItem.target = self
+        menu.addItem(askAnythingItem)
 
-        let modelTitle = "Provider: \(config.selectedProvider.shortDisplayName) • \(config.currentModel())"
-        let modelItem = NSMenuItem(title: modelTitle, action: nil, keyEquivalent: "")
-        modelItem.isEnabled = false
-        menu.addItem(modelItem)
+        let explainItem = NSMenuItem(title: "Explain Selection", action: #selector(triggerExplainManually), keyEquivalent: "")
+        explainItem.target = self
+        menu.addItem(explainItem)
 
-        // Quick Provider Switcher submenu
-        let switchProviderItem = NSMenuItem(title: "Switch AI Provider", action: nil, keyEquivalent: "")
+        let clipboardItem = NSMenuItem(title: "Explain Copied Text", action: #selector(triggerClipboardManually), keyEquivalent: "")
+        clipboardItem.target = self
+        menu.addItem(clipboardItem)
+
+        menu.addItem(NSMenuItem.separator())
+
+        // Clean AI Provider Switcher submenu
+        let switchProviderItem = NSMenuItem(title: "AI Provider: \(config.selectedProvider.shortDisplayName)", action: nil, keyEquivalent: "")
         let providerSubmenu = NSMenu()
         for provider in AIProvider.allCases {
             let ready = config.isProviderReady(provider)
-            let suffix = ready ? (provider.isCLIProvider ? " [CLI]" : "") : (provider.isCLIProvider ? " (Not installed)" : " (No API key)")
-            let item = NSMenuItem(title: "\(provider.displayName)\(suffix)", action: #selector(switchProviderFromMenu(_:)), keyEquivalent: "")
+            let statusNote = ready ? "" : (provider.isCLIProvider ? " (Not found)" : " (Setup needed)")
+            let item = NSMenuItem(title: "\(provider.shortDisplayName)\(statusNote)", action: #selector(switchProviderFromMenu(_:)), keyEquivalent: "")
             item.target = self
             item.representedObject = provider.rawValue
             item.state = (provider == config.selectedProvider) ? .on : .off
@@ -140,39 +150,13 @@ class AppDelegate: NSObject, NSApplicationDelegate, FloatingPillDelegate, Explan
         switchProviderItem.submenu = providerSubmenu
         menu.addItem(switchProviderItem)
 
-        menu.addItem(NSMenuItem.separator())
-
-        let contextShortStr = config.contextShortcut.displayString.components(separatedBy: " (").first ?? "⌥ Space"
-        let universalShortStr = config.universalShortcut.displayString.components(separatedBy: " (").first ?? "⌥⇧ Space"
-        let clipShortStr = config.clipboardShortcut.displayString.components(separatedBy: " (").first ?? "⌥⇧ C"
-
-        let askAnythingItem = NSMenuItem(title: "Ask Anything (Quick Input Box)...", action: #selector(triggerAskManually), keyEquivalent: "")
-        askAnythingItem.target = self
-        menu.addItem(askAnythingItem)
-
-        let explainItem = NSMenuItem(title: "Explain Selection (PDF Context) [\(contextShortStr)]", action: #selector(triggerExplainManually), keyEquivalent: "")
-        explainItem.target = self
-        menu.addItem(explainItem)
-
-        let fourFingerItem = NSMenuItem(title: "Explain Selection (Universal) [\(universalShortStr)]", action: #selector(triggerFourFingerManually), keyEquivalent: "")
-        fourFingerItem.target = self
-        menu.addItem(fourFingerItem)
-
-        let clipboardItem = NSMenuItem(title: "Explain Copied Text [\(clipShortStr)]", action: #selector(triggerClipboardManually), keyEquivalent: "")
-        clipboardItem.target = self
-        menu.addItem(clipboardItem)
-
-        let settingsItem = NSMenuItem(title: "Preferences...", action: #selector(openSettings), keyEquivalent: ",")
+        let settingsItem = NSMenuItem(title: "Settings...", action: #selector(openSettings), keyEquivalent: ",")
         settingsItem.target = self
         menu.addItem(settingsItem)
 
-        let permItem = NSMenuItem(title: "Check Accessibility Permissions...", action: #selector(checkPermissionsDialog), keyEquivalent: "")
-        permItem.target = self
-        menu.addItem(permItem)
-
         menu.addItem(NSMenuItem.separator())
 
-        let quitItem = NSMenuItem(title: "Quit", action: #selector(quitApp), keyEquivalent: "q")
+        let quitItem = NSMenuItem(title: "Quit PlatoReader", action: #selector(quitApp), keyEquivalent: "q")
         quitItem.target = self
         menu.addItem(quitItem)
 
@@ -402,7 +386,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, FloatingPillDelegate, Explan
             pageDisplay: nil,
             modelName: modelName,
             near: selection.bounds,
-            initialStatus: "🔍 Reading page context..."
+            initialStatus: "Reading page context..."
         )
 
         // 2. Perform page context extraction and AI call asynchronously in background
@@ -415,7 +399,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, FloatingPillDelegate, Explan
 
             if self.config.enablePageContext {
                 DispatchQueue.main.async {
-                    self.popoverWindow.updateProgress(status: "📄 Locating page & reading context...")
+                    self.popoverWindow.updateProgress(status: "Finding page context...")
                 }
 
                 if let ctx = PDFContextHelper.shared.extractContext(
@@ -431,7 +415,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, FloatingPillDelegate, Explan
 
             DispatchQueue.main.async {
                 self.popoverWindow.updateProgress(
-                    status: "⚡ Explaining with \(modelName)...",
+                    status: "Explaining...",
                     docName: docName,
                     pageDisplay: pageDisplay
                 )
@@ -489,10 +473,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, FloatingPillDelegate, Explan
         popoverWindow.showLoading(
             selection: selection.text,
             docName: appDisplayName,
-            pageDisplay: "🖐️ Universal Meaning",
+            pageDisplay: nil,
             modelName: modelName,
             near: selection.bounds,
-            initialStatus: "⚡ Explaining with \(modelName)..."
+            initialStatus: "Explaining..."
         )
 
         // 2. Perform universal explanation asynchronously in background
@@ -516,7 +500,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, FloatingPillDelegate, Explan
                     self.popoverWindow.showExplanation(
                         selection: selection.text,
                         docName: appDisplayName,
-                        pageDisplay: "🖐️ Universal Meaning",
+                        pageDisplay: nil,
                         modelName: activeModelDisplay,
                         pageContext: nil,
                         explanationMarkdown: res.text
@@ -554,10 +538,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, FloatingPillDelegate, Explan
         popoverWindow.showLoading(
             selection: question,
             docName: "Quick Ask",
-            pageDisplay: "💬 Direct Prompt",
+            pageDisplay: nil,
             modelName: modelName,
             near: sel.bounds,
-            initialStatus: "⚡ Thinking with \(modelName)..."
+            initialStatus: "Thinking..."
         )
 
         AIService.shared.askDirectQuestion(
@@ -576,7 +560,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, FloatingPillDelegate, Explan
                 self.popoverWindow.showExplanation(
                     selection: question,
                     docName: "Quick Ask",
-                    pageDisplay: "💬 Direct Prompt",
+                    pageDisplay: nil,
                     modelName: activeModelDisplay,
                     pageContext: nil,
                     explanationMarkdown: res.text
