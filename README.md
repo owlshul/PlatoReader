@@ -29,13 +29,15 @@ Whenever you highlight a sentence anywhere on your Mac, PlatoReader summons inst
 - **Floating "💡 Explain" Pill**: Appears gently above selected text.
 - **Instant Hotkey**: Press your configured shortcut (default: **`⌥ Space`**) while text is highlighted.
 
-### 5. 🛡️ Multi-Provider, Automatic Failover & Dynamic Model Discovery
-- Supported providers: **Google Gemini**, **Groq (Ultra-Fast)**, **OpenRouter** (Claude 3.5 Sonnet, DeepSeek R1), and **OpenAI**.
-- Automatic failover fallback: if your primary model hits a rate limit or network glitch, PlatoReader automatically falls over to your backup provider.
-- Dynamic model fetcher: Click **"⚡ Test Key & Fetch Models"** to validate keys and auto-populate available models.
+### 5. 🛡️ Multi-Provider (APIs & Installed CLIs), Automatic Failover & Dynamic Model Discovery
+- **API Providers**: **Google Gemini**, **Groq (Ultra-Fast)**, **OpenRouter** (Claude 3.5 Sonnet, DeepSeek R1), and **OpenAI**.
+- **Installed CLI Providers**: **OpenCode CLI (`opencode`)** and **Antigravity CLI (`agy`)** — use your local CLI auth, tools, and models directly with zero API key setup, or switch between API and CLI anytime from Preferences or the menu bar.
+- Automatic failover fallback: if your primary model or provider fails, PlatoReader automatically falls over to your backup provider (API or CLI).
+- Dynamic model fetcher: Click **"⚡ Test Key & Fetch Models"** (or **"⚡ Detect CLI & Fetch Models"**) to validate and auto-populate available models.
 
-### 6. 💬 Follow-Up Intellectual Doubts
-- Have a question or cross-examination about the explanation? Ask in the floating card's doubt input bar to get a live, research-grounded answer.
+### 6. 💬 Quick Ask Blank Input Box & Follow-Up Intellectual Doubts
+- **No Text Selected? Instant Input Box**: Pressing your shortcut (`⌥ Space`, `⌥⇧ Space`, or `⌥⇧ C` when clipboard is empty) with no highlighted text opens a focused **Quick Ask** input box where you can paste text or type any question directly.
+- **Follow-Up Intellectual Doubts**: Have a question or cross-examination about the explanation? Ask in the floating card's doubt input bar to get a live, context-aware multi-turn answer.
 
 ---
 

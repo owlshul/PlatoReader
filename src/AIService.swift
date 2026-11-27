@@ -3,6 +3,8 @@ import Foundation
 public enum AIServiceError: LocalizedError {
     case missingApiKey(AIProvider)
     case invalidApiKey(String)
+    case cliNotInstalled(AIProvider)
+    case cliError(String)
     case rateLimitExceeded
     case networkError(String)
     case parseError(String)
@@ -14,6 +16,11 @@ public enum AIServiceError: LocalizedError {
             return "No API key configured for \(provider.displayName). Please open Settings and enter your key."
         case .invalidApiKey(let msg):
             return "Invalid API Key: \(msg)"
+        case .cliNotInstalled(let provider):
+            let bin = provider.cliExecutableName ?? provider.rawValue
+            return "\(provider.displayName) binary ('\(bin)') was not found. Please install it or set its path in Preferences."
+        case .cliError(let msg):
+            return msg
         case .rateLimitExceeded:
             return "Rate limit reached. Please wait a moment or switch to another model/provider."
         case .networkError(let msg):
@@ -38,7 +45,12 @@ public class AIService {
     }
 
     // MARK: - Fetch Models Dynamically
-    public func fetchModels(provider: AIProvider, apiKey: String, completion: @escaping (Result<[ModelInfo], AIServiceError>) -> Void) {
+    public func fetchModels(provider: AIProvider, apiKey: String, cliPath: String? = nil, completion: @escaping (Result<[ModelInfo], AIServiceError>) -> Void) {
+        if provider.isCLIProvider {
+            fetchCLIModels(provider: provider, explicitPath: cliPath, completion: completion)
+            return
+        }
+
         let cleanKey = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !cleanKey.isEmpty else {
             completion(.failure(.missingApiKey(provider)))
@@ -54,6 +66,8 @@ public class AIService {
             fetchOpenRouterModels(apiKey: cleanKey, completion: completion)
         case .openai:
             fetchOpenAIModels(apiKey: cleanKey, completion: completion)
+        case .opencode, .antigravity:
+            break
         }
     }
 
@@ -272,6 +286,89 @@ public class AIService {
         }.resume()
     }
 
+    // MARK: - CLI Models Discovery (OpenCode & Antigravity)
+    private func fetchCLIModels(provider: AIProvider, explicitPath: String?, completion: @escaping (Result<[ModelInfo], AIServiceError>) -> Void) {
+        let tempConfig = AppConfig()
+        if let custom = explicitPath, !custom.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            tempConfig.cliPaths[provider.rawValue] = custom.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+
+        guard let binaryPath = tempConfig.resolveCLIPath(for: provider) else {
+            DispatchQueue.main.async { completion(.failure(.cliNotInstalled(provider))) }
+            return
+        }
+
+        runCLIProcess(
+            executablePath: binaryPath,
+            arguments: ["models"],
+            timeoutSeconds: 20
+        ) { result in
+            switch result {
+            case .failure(let err):
+                DispatchQueue.main.async { completion(.failure(err)) }
+            case .success(let output):
+                var models: [ModelInfo] = [
+                    ModelInfo(id: "default", name: "\(provider.shortDisplayName) Default (Auto)")
+                ]
+                let cleaned = self.stripANSI(output)
+                for rawLine in cleaned.components(separatedBy: .newlines) {
+                    let line = rawLine.trimmingCharacters(in: .whitespacesAndNewlines)
+                    guard !line.isEmpty else { continue }
+                    if line.contains("Fetching available models") { continue }
+
+                    if provider == .antigravity {
+                        let parts = line.components(separatedBy: "\t").filter { !$0.isEmpty }
+                        if parts.count >= 2 {
+                            let id = parts[0].trimmingCharacters(in: .whitespaces)
+                            let name = parts[1].trimmingCharacters(in: .whitespaces)
+                            if !models.contains(where: { $0.id == id }) {
+                                models.append(ModelInfo(id: id, name: name))
+                            }
+                        } else if let firstSpace = line.range(of: "\\s{2,}", options: .regularExpression) {
+                            let id = String(line[..<firstSpace.lowerBound]).trimmingCharacters(in: .whitespaces)
+                            let name = String(line[firstSpace.upperBound...]).trimmingCharacters(in: .whitespaces)
+                            if !id.isEmpty && !models.contains(where: { $0.id == id }) {
+                                models.append(ModelInfo(id: id, name: name.isEmpty ? id : name))
+                            }
+                        } else if !line.contains(" ") && !models.contains(where: { $0.id == line }) {
+                            models.append(ModelInfo(id: line, name: line))
+                        }
+                    } else if provider == .opencode {
+                        // opencode models prints one model ID per line (e.g. opencode/big-pickle)
+                        if !line.contains(" ") && line.contains("/") {
+                            let display = line.replacingOccurrences(of: "/", with: " • ")
+                            if !models.contains(where: { $0.id == line }) {
+                                models.append(ModelInfo(id: line, name: display))
+                            }
+                        }
+                    }
+                }
+
+                if models.count == 1 {
+                    // Preserve known defaults if CLI returned none
+                    for def in AppConfig.defaultModels(for: provider) where def.id != "default" {
+                        models.append(def)
+                    }
+                }
+                DispatchQueue.main.async { completion(.success(models)) }
+            }
+        }
+    }
+
+    private func resolvePrimaryExecutionTarget(config: AppConfig) -> (provider: AIProvider, model: String, credential: String)? {
+        let primaryCred = config.credential(for: config.selectedProvider)
+        if !primaryCred.isEmpty {
+            return (config.selectedProvider, config.currentModel(), primaryCred)
+        }
+        if let fbProvider = config.fallbackProvider {
+            let fbCred = config.credential(for: fbProvider)
+            if !fbCred.isEmpty {
+                return (fbProvider, config.activeFallbackModel(), fbCred)
+            }
+        }
+        return nil
+    }
+
     // MARK: - Generate Explanation with Automatic Fallback
     public func explain(
         selection: String,
@@ -279,9 +376,12 @@ public class AIService {
         config: AppConfig,
         completion: @escaping (Result<(text: String, fallbackUsed: String?), AIServiceError>) -> Void
     ) {
-        let primaryKey = config.currentKey()
-        guard !primaryKey.isEmpty else {
-            completion(.failure(.missingApiKey(config.selectedProvider)))
+        guard let target = resolvePrimaryExecutionTarget(config: config) else {
+            if config.selectedProvider.isCLIProvider {
+                completion(.failure(.cliNotInstalled(config.selectedProvider)))
+            } else {
+                completion(.failure(.missingApiKey(config.selectedProvider)))
+            }
             return
         }
 
@@ -291,12 +391,11 @@ public class AIService {
             .replacingOccurrences(of: "{page_context}", with: cleanContext)
 
         let systemPrompt = config.activeSystemPrompt()
-        let primaryModel = config.currentModel()
 
         executeWithFallback(
-            primaryProvider: config.selectedProvider,
-            primaryModel: primaryModel,
-            primaryKey: primaryKey,
+            primaryProvider: target.provider,
+            primaryModel: target.model,
+            primaryCredential: target.credential,
             config: config,
             systemPrompt: systemPrompt,
             userPrompt: userPrompt,
@@ -311,12 +410,12 @@ public class AIService {
         config: AppConfig,
         completion: @escaping (Result<(text: String, fallbackUsed: String?), AIServiceError>) -> Void
     ) {
-        let primaryKey = config.currentKey().isEmpty ? (config.fallbackKey() ?? "") : config.currentKey()
-        let primaryProvider = config.currentKey().isEmpty ? (config.fallbackProvider ?? config.selectedProvider) : config.selectedProvider
-        let primaryModel = config.currentKey().isEmpty ? config.activeFallbackModel() : config.currentModel()
-
-        guard !primaryKey.isEmpty else {
-            completion(.failure(.missingApiKey(primaryProvider)))
+        guard let target = resolvePrimaryExecutionTarget(config: config) else {
+            if config.selectedProvider.isCLIProvider {
+                completion(.failure(.cliNotInstalled(config.selectedProvider)))
+            } else {
+                completion(.failure(.missingApiKey(config.selectedProvider)))
+            }
             return
         }
 
@@ -327,21 +426,57 @@ public class AIService {
         let systemPrompt = config.activeFourFingerSystemPrompt()
 
         self.executeWithFallback(
-            primaryProvider: primaryProvider,
-            primaryModel: primaryModel,
-            primaryKey: primaryKey,
+            primaryProvider: target.provider,
+            primaryModel: target.model,
+            primaryCredential: target.credential,
             config: config,
             systemPrompt: systemPrompt,
             userPrompt: userPrompt,
-            enableGoogleSearch: false
-        ) { result in
-            switch result {
-            case .success(let res):
-                completion(.success((text: res.text, fallbackUsed: res.fallbackUsed)))
-            case .failure(let error):
-                completion(.failure(error))
+            enableGoogleSearch: false,
+            completion: completion
+        )
+    }
+
+    // MARK: - Direct Question / Pasted Input (Blank Input Box Mode)
+    public func askDirectQuestion(
+        question: String,
+        config: AppConfig,
+        completion: @escaping (Result<(text: String, fallbackUsed: String?), AIServiceError>) -> Void
+    ) {
+        guard let target = resolvePrimaryExecutionTarget(config: config) else {
+            if config.selectedProvider.isCLIProvider {
+                completion(.failure(.cliNotInstalled(config.selectedProvider)))
+            } else {
+                completion(.failure(.missingApiKey(config.selectedProvider)))
             }
+            return
         }
+
+        let systemPrompt = """
+        You are PlatoReader, an insightful, crisp AI reading companion and knowledge assistant on macOS.
+        The user either pasted a passage/term they want explained OR typed a direct question.
+        - If it is a sentence, quote, concept, or term: explain its clear meaning, nuances, and broader context concisely (2 to 5 sentences or clean bullet points).
+        - If it is a direct question or prompt: answer directly, accurately, and thoughtfully without conversational fluff ("Sure!", "Great question!", etc.).
+        Use clean Markdown formatting when helpful.
+        """
+
+        let userPrompt = """
+        User Input / Question:
+        \"\"\"\(question)\"\"\"
+
+        Respond directly and clearly:
+        """
+
+        self.executeWithFallback(
+            primaryProvider: target.provider,
+            primaryModel: target.model,
+            primaryCredential: target.credential,
+            config: config,
+            systemPrompt: systemPrompt,
+            userPrompt: userPrompt,
+            enableGoogleSearch: false,
+            completion: completion
+        )
     }
 
     // MARK: - Answer Doubt (Intellectual Cross-Questioning via Deep AI Knowledge)
@@ -350,16 +485,17 @@ public class AIService {
         docName: String? = nil,
         pageContext: String?,
         previousExplanation: String,
+        doubtHistory: [(question: String, answer: String)] = [],
         doubt: String,
         config: AppConfig,
         completion: @escaping (Result<String, AIServiceError>) -> Void
     ) {
-        let primaryKey = config.currentKey().isEmpty ? (config.fallbackKey() ?? "") : config.currentKey()
-        let primaryProvider = config.currentKey().isEmpty ? (config.fallbackProvider ?? config.selectedProvider) : config.selectedProvider
-        let primaryModel = config.currentKey().isEmpty ? config.activeFallbackModel() : config.currentModel()
-
-        guard !primaryKey.isEmpty else {
-            completion(.failure(.missingApiKey(primaryProvider)))
+        guard let target = resolvePrimaryExecutionTarget(config: config) else {
+            if config.selectedProvider.isCLIProvider {
+                completion(.failure(.cliNotInstalled(config.selectedProvider)))
+            } else {
+                completion(.failure(.missingApiKey(config.selectedProvider)))
+            }
             return
         }
 
@@ -367,7 +503,7 @@ public class AIService {
 
         let systemPrompt = """
         You are an insightful intellectual reading companion, mentor, and scholar.
-        The reader has highlighted a passage in their reading and asked a follow-up doubt, question, or cross-examination.
+        The reader has highlighted a passage (or asked a question) and asked a follow-up doubt, question, or cross-examination.
 
         CRITICAL GUIDELINES:
         1. FULL INTELLECTUAL FREEDOM & WORLD KNOWLEDGE:
@@ -375,13 +511,13 @@ public class AIService {
         2. EXPLAIN THE "WHY" & BROADER CONTEXT:
            If the reader asks why an author claims something, who a person is, what a concept means, or what historical/philosophical context shaped this thought, explain it thoroughly, clearly, and engagingly.
         3. GROUND IN THE PASSAGE:
-           Tie your explanation back to the passage being read.
+           Tie your explanation back to the passage/question being discussed.
         4. FORMAT & TONE:
-           Thoughtful, direct, conversational, and lucid (like an erudite conversation or a brilliant Redditor explaining complex ideas simply without dumbing them down). Avoid boilerplate openings ("Great question!", "Certainly!", etc.).
+           Thoughtful, direct, conversational, and lucid. Avoid boilerplate openings ("Great question!", "Certainly!", etc.).
         """
 
         var userPrompt = """
-        Original Passage:
+        Original Passage / Topic:
         \"\"\"\(selection)\"\"\"
 
         Previous Explanation:
@@ -396,18 +532,28 @@ public class AIService {
             """
         }
 
+        if !doubtHistory.isEmpty {
+            let recent = doubtHistory.suffix(4)
+            let historyText = recent.map { "Q: \($0.question)\nA: \($0.answer)" }.joined(separator: "\n\n")
+            userPrompt += """
+
+            Earlier Follow-Up Discussion:
+            \(historyText)
+            """
+        }
+
         userPrompt += """
 
         Reader's Doubt / Cross-Question:
         \"\"\"\(doubt)\"\"\"
 
-        Answer the reader's doubt directly, combining your intelligence and document context:
+        Answer the reader's doubt directly, combining your intelligence and context:
         """
 
         self.executeWithFallback(
-            primaryProvider: primaryProvider,
-            primaryModel: primaryModel,
-            primaryKey: primaryKey,
+            primaryProvider: target.provider,
+            primaryModel: target.model,
+            primaryCredential: target.credential,
             config: config,
             systemPrompt: systemPrompt,
             userPrompt: userPrompt,
@@ -430,36 +576,41 @@ public class AIService {
     private func executeWithFallback(
         primaryProvider: AIProvider,
         primaryModel: String,
-        primaryKey: String,
+        primaryCredential: String,
         config: AppConfig,
         systemPrompt: String,
         userPrompt: String,
         enableGoogleSearch: Bool = false,
         completion: @escaping (Result<(text: String, fallbackUsed: String?), AIServiceError>) -> Void
     ) {
-        var fallbacks: [(provider: AIProvider, model: String, key: String)] = []
+        var fallbacks: [(provider: AIProvider, model: String, credential: String)] = []
 
-        // 1. First priority: Configured fallback provider and model
-        if let fbProvider = config.fallbackProvider, let fbKey = config.fallbackKey() {
-            let primaryFbModel = config.activeFallbackModel()
-            fallbacks.append((provider: fbProvider, model: primaryFbModel, key: fbKey))
+        // 1. First priority: Configured fallback provider and model (API or CLI)
+        if let fbProvider = config.fallbackProvider, fbProvider != primaryProvider {
+            let fbCred = config.credential(for: fbProvider)
+            if !fbCred.isEmpty {
+                let primaryFbModel = config.activeFallbackModel()
+                fallbacks.append((provider: fbProvider, model: primaryFbModel, credential: fbCred))
 
-            // Candidate backup models for this fallback provider (e.g. gpt-oss-120b, gpt-oss-20b for Groq)
-            for m in config.candidateModels(for: fbProvider) {
-                if m != primaryFbModel && !fallbacks.contains(where: { $0.provider == fbProvider && $0.model == m }) {
-                    fallbacks.append((provider: fbProvider, model: m, key: fbKey))
+                if !fbProvider.isCLIProvider {
+                    for m in config.candidateModels(for: fbProvider) {
+                        if m != primaryFbModel && !fallbacks.contains(where: { $0.provider == fbProvider && $0.model == m }) {
+                            fallbacks.append((provider: fbProvider, model: m, credential: fbCred))
+                        }
+                    }
                 }
             }
         }
 
-        // 2. Second priority: Any other provider configured with a valid API key
+        // 2. Second priority: Any other API provider configured with a valid API key
         for provider in AIProvider.allCases {
+            if provider.isCLIProvider { continue }
             if provider == primaryProvider || provider == config.fallbackProvider { continue }
-            let key = config.apiKeys[provider.rawValue]?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            let key = config.effectiveKey(for: provider)
             if !key.isEmpty {
                 for m in config.candidateModels(for: provider) {
                     if !fallbacks.contains(where: { $0.provider == provider && $0.model == m }) {
-                        fallbacks.append((provider: provider, model: m, key: key))
+                        fallbacks.append((provider: provider, model: m, credential: key))
                     }
                 }
             }
@@ -469,7 +620,7 @@ public class AIService {
         callProvider(
             provider: primaryProvider,
             model: primaryModel,
-            apiKey: primaryKey,
+            credential: primaryCredential,
             systemPrompt: systemPrompt,
             userPrompt: userPrompt,
             enableGoogleSearch: enableGoogleSearch
@@ -499,7 +650,7 @@ public class AIService {
     }
 
     private func tryFallbackChain(
-        candidates: [(provider: AIProvider, model: String, key: String)],
+        candidates: [(provider: AIProvider, model: String, credential: String)],
         index: Int,
         systemPrompt: String,
         userPrompt: String,
@@ -517,7 +668,7 @@ public class AIService {
         callProvider(
             provider: current.provider,
             model: current.model,
-            apiKey: current.key,
+            credential: current.credential,
             systemPrompt: systemPrompt,
             userPrompt: userPrompt,
             enableGoogleSearch: (enableGoogleSearch && current.provider == .gemini)
@@ -546,7 +697,7 @@ public class AIService {
     private func callProvider(
         provider: AIProvider,
         model: String,
-        apiKey: String,
+        credential: String,
         systemPrompt: String,
         userPrompt: String,
         enableGoogleSearch: Bool = false,
@@ -554,14 +705,259 @@ public class AIService {
     ) {
         switch provider {
         case .gemini:
-            callGemini(model: model, apiKey: apiKey, systemPrompt: systemPrompt, userPrompt: userPrompt, enableGoogleSearch: enableGoogleSearch, completion: completion)
+            callGemini(model: model, apiKey: credential, systemPrompt: systemPrompt, userPrompt: userPrompt, enableGoogleSearch: enableGoogleSearch, completion: completion)
         case .groq:
-            callGroq(model: model, apiKey: apiKey, systemPrompt: systemPrompt, userPrompt: userPrompt, completion: completion)
+            callGroq(model: model, apiKey: credential, systemPrompt: systemPrompt, userPrompt: userPrompt, completion: completion)
         case .openrouter:
-            callOpenRouter(model: model, apiKey: apiKey, systemPrompt: systemPrompt, userPrompt: userPrompt, completion: completion)
+            callOpenRouter(model: model, apiKey: credential, systemPrompt: systemPrompt, userPrompt: userPrompt, completion: completion)
         case .openai:
-            callOpenAI(model: model, apiKey: apiKey, systemPrompt: systemPrompt, userPrompt: userPrompt, completion: completion)
+            callOpenAI(model: model, apiKey: credential, systemPrompt: systemPrompt, userPrompt: userPrompt, completion: completion)
+        case .opencode:
+            callOpenCodeCLI(binaryPath: credential, model: model, systemPrompt: systemPrompt, userPrompt: userPrompt, completion: completion)
+        case .antigravity:
+            callAntigravityCLI(binaryPath: credential, model: model, systemPrompt: systemPrompt, userPrompt: userPrompt, completion: completion)
         }
+    }
+
+    // MARK: - CLI Providers (OpenCode & Antigravity)
+    private func buildCLICombinedPrompt(systemPrompt: String, userPrompt: String) -> String {
+        return """
+        Follow these instructions carefully and reply directly with the final answer (do not inspect files or run tools):
+
+        [Instructions]
+        \(systemPrompt)
+
+        [Request]
+        \(userPrompt)
+        """
+    }
+
+    private func callOpenCodeCLI(
+        binaryPath: String,
+        model: String,
+        systemPrompt: String,
+        userPrompt: String,
+        completion: @escaping (Result<String, AIServiceError>) -> Void
+    ) {
+        let prompt = buildCLICombinedPrompt(systemPrompt: systemPrompt, userPrompt: userPrompt)
+        var args = ["run", "--format", "json", "--archived"]
+        let trimmedModel = model.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmedModel.isEmpty && trimmedModel != "default" {
+            args.append(contentsOf: ["--model", trimmedModel])
+        }
+        args.append(prompt)
+
+        runCLIProcess(executablePath: binaryPath, arguments: args, timeoutSeconds: 75) { result in
+            switch result {
+            case .failure(let err):
+                DispatchQueue.main.async { completion(.failure(err)) }
+            case .success(let output):
+                var collectedTexts: [String] = []
+                var errorMessage: String? = nil
+
+                for line in output.components(separatedBy: .newlines) {
+                    let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+                    guard trimmed.hasPrefix("{"),
+                          let data = trimmed.data(using: .utf8),
+                          let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                          let type = json["type"] as? String else { continue }
+
+                    if type == "text",
+                       let part = json["part"] as? [String: Any],
+                       let text = part["text"] as? String {
+                        collectedTexts.append(text)
+                    } else if type == "error" {
+                        if let errObj = json["error"] as? [String: Any],
+                           let msg = errObj["message"] as? String {
+                            errorMessage = msg
+                        } else if let msg = json["message"] as? String {
+                            errorMessage = msg
+                        }
+                    }
+                }
+
+                let joined = collectedTexts.joined().trimmingCharacters(in: .whitespacesAndNewlines)
+                if !joined.isEmpty {
+                    DispatchQueue.main.async { completion(.success(joined)) }
+                } else if let errMsg = errorMessage {
+                    DispatchQueue.main.async { completion(.failure(.cliError("OpenCode CLI error: \(errMsg)"))) }
+                } else {
+                    let fallbackText = self.stripANSI(output).trimmingCharacters(in: .whitespacesAndNewlines)
+                    if !fallbackText.isEmpty {
+                        DispatchQueue.main.async { completion(.success(fallbackText)) }
+                    } else {
+                        DispatchQueue.main.async { completion(.failure(.cliError("OpenCode CLI returned an empty response."))) }
+                    }
+                }
+            }
+        }
+    }
+
+    private func callAntigravityCLI(
+        binaryPath: String,
+        model: String,
+        systemPrompt: String,
+        userPrompt: String,
+        completion: @escaping (Result<String, AIServiceError>) -> Void
+    ) {
+        let prompt = buildCLICombinedPrompt(systemPrompt: systemPrompt, userPrompt: userPrompt)
+        var args = [
+            "--disable-slash-commands",
+            "--output-format", "text",
+            "--print-timeout=60s"
+        ]
+        let trimmedModel = model.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmedModel.isEmpty && trimmedModel != "default" {
+            args.append(contentsOf: ["--model", trimmedModel])
+        }
+        args.append("--print=\(prompt)")
+
+        runCLIProcess(executablePath: binaryPath, arguments: args, timeoutSeconds: 75) { result in
+            switch result {
+            case .failure(let err):
+                DispatchQueue.main.async { completion(.failure(err)) }
+            case .success(let output):
+                let clean = self.stripANSI(output).trimmingCharacters(in: .whitespacesAndNewlines)
+                if !clean.isEmpty {
+                    DispatchQueue.main.async { completion(.success(clean)) }
+                } else {
+                    DispatchQueue.main.async { completion(.failure(.cliError("Antigravity CLI returned an empty response."))) }
+                }
+            }
+        }
+    }
+
+    private func runCLIProcess(
+        executablePath: String,
+        arguments: [String],
+        timeoutSeconds: TimeInterval,
+        completion: @escaping (Result<String, AIServiceError>) -> Void
+    ) {
+        DispatchQueue.global(qos: .userInitiated).async {
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: executablePath)
+            process.arguments = arguments
+
+            // Run inside an isolated empty sandbox directory so CLIs don't scan / or user home
+            let sandboxDir = AppConfig.configDirectory.appendingPathComponent("cli_sandbox")
+            try? FileManager.default.createDirectory(at: sandboxDir, withIntermediateDirectories: true)
+            process.currentDirectoryURL = sandboxDir
+
+            // Ensure PATH includes common CLI locations when launched as a macOS GUI app
+            var env = ProcessInfo.processInfo.environment
+            let home = FileManager.default.homeDirectoryForCurrentUser.path
+            let extraPaths = [
+                "\(home)/.local/bin",
+                "\(home)/.opencode/bin",
+                "/opt/homebrew/bin",
+                "/usr/local/bin",
+                "/usr/bin",
+                "/bin"
+            ]
+            let existingPath = env["PATH"] ?? ""
+            env["PATH"] = (extraPaths + existingPath.components(separatedBy: ":").filter { !$0.isEmpty }).joined(separator: ":")
+            env["NO_COLOR"] = "1"
+            process.environment = env
+
+            let outPipe = Pipe()
+            let errPipe = Pipe()
+            process.standardOutput = outPipe
+            process.standardError = errPipe
+            process.standardInput = FileHandle.nullDevice
+
+            var outData = Data()
+            var errData = Data()
+            let dataLock = NSLock()
+
+            outPipe.fileHandleForReading.readabilityHandler = { handle in
+                let chunk = handle.availableData
+                if !chunk.isEmpty {
+                    dataLock.lock()
+                    outData.append(chunk)
+                    dataLock.unlock()
+                }
+            }
+            errPipe.fileHandleForReading.readabilityHandler = { handle in
+                let chunk = handle.availableData
+                if !chunk.isEmpty {
+                    dataLock.lock()
+                    errData.append(chunk)
+                    dataLock.unlock()
+                }
+            }
+
+            let stateLock = NSLock()
+            var didComplete = false
+
+            let timeoutWork = DispatchWorkItem {
+                stateLock.lock()
+                if !didComplete {
+                    didComplete = true
+                    stateLock.unlock()
+                    if process.isRunning {
+                        process.terminate()
+                    }
+                    outPipe.fileHandleForReading.readabilityHandler = nil
+                    errPipe.fileHandleForReading.readabilityHandler = nil
+                    completion(.failure(.cliError("CLI timed out after \(Int(timeoutSeconds))s.")))
+                } else {
+                    stateLock.unlock()
+                }
+            }
+
+            process.terminationHandler = { proc in
+                timeoutWork.cancel()
+                outPipe.fileHandleForReading.readabilityHandler = nil
+                errPipe.fileHandleForReading.readabilityHandler = nil
+
+                let remainingOut = outPipe.fileHandleForReading.readDataToEndOfFile()
+                let remainingErr = errPipe.fileHandleForReading.readDataToEndOfFile()
+                dataLock.lock()
+                outData.append(remainingOut)
+                errData.append(remainingErr)
+                let stdoutStr = String(data: outData, encoding: .utf8) ?? ""
+                let stderrStr = String(data: errData, encoding: .utf8) ?? ""
+                dataLock.unlock()
+
+                stateLock.lock()
+                if didComplete {
+                    stateLock.unlock()
+                    return
+                }
+                didComplete = true
+                stateLock.unlock()
+
+                if proc.terminationStatus == 0 {
+                    completion(.success(stdoutStr))
+                } else {
+                    let cleanErr = self.stripANSI(stderrStr.isEmpty ? stdoutStr : stderrStr).trimmingCharacters(in: .whitespacesAndNewlines)
+                    let msg = cleanErr.isEmpty ? "CLI exited with status \(proc.terminationStatus)" : cleanErr
+                    completion(.failure(.cliError("CLI Error: \(msg)")))
+                }
+            }
+
+            DispatchQueue.global().asyncAfter(deadline: .now() + timeoutSeconds, execute: timeoutWork)
+
+            do {
+                try process.run()
+            } catch {
+                timeoutWork.cancel()
+                outPipe.fileHandleForReading.readabilityHandler = nil
+                errPipe.fileHandleForReading.readabilityHandler = nil
+                stateLock.lock()
+                if !didComplete {
+                    didComplete = true
+                    stateLock.unlock()
+                    completion(.failure(.cliError("Failed to launch CLI: \(error.localizedDescription)")))
+                } else {
+                    stateLock.unlock()
+                }
+            }
+        }
+    }
+
+    private func stripANSI(_ str: String) -> String {
+        return str.replacingOccurrences(of: "\\u{001B}\\[[0-9;?]*[ -/]*[@-~]", with: "", options: .regularExpression)
     }
 
     // MARK: - Gemini Implementation

@@ -4,7 +4,8 @@ import WebKit
 public protocol ExplanationPopoverDelegate: AnyObject {
     func didRequestRegenerate(simpler: Bool)
     func didRequestOpenSettings()
-    func didSubmitDoubt(doubtText: String)
+    func didSubmitDoubt(doubtId: String, doubtText: String)
+    func didSubmitQuickQuestion(questionText: String)
 }
 
 // Custom Draggable Header View using Apple's native performDrag
@@ -30,6 +31,7 @@ public class ExplanationPopoverWindow: NSPanel, WKNavigationDelegate, WKScriptMe
     private var currentTextToCopy: String = ""
     private var currentPageContext: String = ""
     private var hasBeenPositionedOnce: Bool = false
+    private var shouldFocusQuickAsk: Bool = false
 
     public var isPinned: Bool = true {
         didSet {
@@ -202,10 +204,139 @@ public class ExplanationPopoverWindow: NSPanel, WKNavigationDelegate, WKScriptMe
             actionDelegate?.didRequestOpenSettings()
         } else if action == "close" {
             self.orderOut(nil)
+        } else if action == "requestPasteForAsk" {
+            if let clip = NSPasteboard.general.string(forType: .string), !clip.isEmpty {
+                let jsClip = encodeJsString(clip)
+                webView.evaluateJavaScript("insertClipboardIntoQuickAsk(\(jsClip));", completionHandler: nil)
+            }
+        } else if action.hasPrefix("ask:") {
+            let questionText = String(action.dropFirst(4)).trimmingCharacters(in: .whitespacesAndNewlines)
+            if !questionText.isEmpty {
+                actionDelegate?.didSubmitQuickQuestion(questionText: questionText)
+            }
         } else if action.hasPrefix("doubt:") {
-            let doubtText = String(action.dropFirst(6))
-            actionDelegate?.didSubmitDoubt(doubtText: doubtText)
+            let payload = String(action.dropFirst(6))
+            if let pipeIdx = payload.firstIndex(of: "|") {
+                let doubtId = String(payload[..<pipeIdx])
+                let doubtText = String(payload[payload.index(after: pipeIdx)...])
+                actionDelegate?.didSubmitDoubt(doubtId: doubtId, doubtText: doubtText)
+            } else {
+                actionDelegate?.didSubmitDoubt(doubtId: "", doubtText: payload)
+            }
         }
+    }
+
+    public func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        if shouldFocusQuickAsk {
+            shouldFocusQuickAsk = false
+            self.makeFirstResponder(webView)
+            let js = "setTimeout(() => { const el = document.getElementById('quickAskInput'); if (el) { el.focus(); el.setSelectionRange(el.value.length, el.value.length); } }, 30);"
+            webView.evaluateJavaScript(js, completionHandler: nil)
+        }
+    }
+
+    // Blank Input Box Mode when no text is selected
+    public func showAskInput(
+        modelName: String,
+        providerName: String,
+        near screenRect: CGRect,
+        initialText: String? = nil
+    ) {
+        shouldFocusQuickAsk = true
+        titleLabel.stringValue = "💬 Quick Ask"
+        titleLabel.sizeToFit()
+        let availableWidth = (contentView?.bounds.width ?? 490) - 130 - 14 - 90
+        let finalTitleWidth = min(titleLabel.frame.width, max(availableWidth, 120))
+        titleLabel.frame = NSRect(x: 14, y: 8, width: finalTitleWidth, height: 20)
+
+        pageBadge.stringValue = "• \(providerName)"
+        pageBadge.sizeToFit()
+        pageBadge.frame = NSRect(x: 14 + finalTitleWidth + 6, y: 8, width: max(pageBadge.frame.width + 12, 110), height: 20)
+
+        let prefill = escapeHtml(initialText ?? "")
+        let hasClipboard = !(NSPasteboard.general.string(forType: .string)?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
+
+        let html = """
+        <!DOCTYPE html>
+        <html>
+        <head>
+        <meta charset="utf-8">
+        <style>
+        \(cleanCss)
+        </style>
+        </head>
+        <body>
+        <div class="content-container">
+            <div class="ask-header-note">
+                <span>Paste a passage or type any question for <strong>\(escapeHtml(modelName))</strong></span>
+            </div>
+
+            <textarea id="quickAskInput" class="quick-ask-input" placeholder="Paste text or type your question here...&#10;(Press Enter to ask, Shift+Enter for new line)">\(prefill)</textarea>
+
+            <div class="bottom-bar">
+                <div class="btn-group">
+                    <button class="action-btn primary-ask-btn" onclick="submitQuickAsk()">✨ Ask AI</button>
+                    \(hasClipboard ? "<button class=\"action-btn\" onclick=\"window.webkit.messageHandlers.popoverAction.postMessage('requestPasteForAsk')\">📋 Paste Clipboard</button>" : "")
+                    <button class="action-btn" onclick="window.webkit.messageHandlers.popoverAction.postMessage('settings')">⚙️ Provider</button>
+                </div>
+                <div class="hint-text">Enter to send • Esc to close</div>
+            </div>
+        </div>
+
+        <script>
+        const quickInput = document.getElementById('quickAskInput');
+        if (quickInput) {
+            quickInput.focus();
+            quickInput.addEventListener('keydown', function(e) {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    submitQuickAsk();
+                } else if (e.key === 'Escape') {
+                    e.preventDefault();
+                    window.webkit.messageHandlers.popoverAction.postMessage('close');
+                }
+            });
+        }
+
+        document.addEventListener('keydown', function(e) {
+            if (e.key === 'Escape') {
+                e.preventDefault();
+                window.webkit.messageHandlers.popoverAction.postMessage('close');
+            }
+        });
+
+        function insertClipboardIntoQuickAsk(clipText) {
+            if (!quickInput) return;
+            quickInput.value = clipText;
+            quickInput.focus();
+            quickInput.setSelectionRange(quickInput.value.length, quickInput.value.length);
+        }
+
+        function submitQuickAsk() {
+            if (!quickInput) return;
+            const text = quickInput.value.trim();
+            if (!text) {
+                quickInput.focus();
+                return;
+            }
+            window.webkit.messageHandlers.popoverAction.postMessage('ask:' + text);
+        }
+        </script>
+        </body>
+        </html>
+        """
+
+        webView.loadHTMLString(html, baseURL: nil)
+
+        if !isPinned || !hasBeenPositionedOnce {
+            positionWindow(near: screenRect)
+            hasBeenPositionedOnce = true
+        }
+
+        self.makeKeyAndOrderFront(nil)
+        self.orderFrontRegardless()
+        NSApp.activate(ignoringOtherApps: true)
+        self.makeFirstResponder(webView)
     }
 
     // Step 1: Immediate display (0ms). If pinned, stays strictly in place!
@@ -259,7 +390,8 @@ public class ExplanationPopoverWindow: NSPanel, WKNavigationDelegate, WKScriptMe
         if docName != nil || pageDisplay != nil {
             updateHeaderInfo(docName: docName, pageDisplay: pageDisplay)
         }
-        let js = "var el = document.getElementById('statusLabel'); if (el) { el.innerText = '\(escapeJs(status))'; }"
+        let jsStatus = encodeJsString(status)
+        let js = "var el = document.getElementById('statusLabel'); if (el) { el.innerText = \(jsStatus); }"
         webView.evaluateJavaScript(js, completionHandler: nil)
     }
 
@@ -425,10 +557,23 @@ public class ExplanationPopoverWindow: NSPanel, WKNavigationDelegate, WKScriptMe
         }
 
         function handleDoubtKey(e) {
-            if (e.key === 'Enter') {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
                 submitDoubt();
+            } else if (e.key === 'Escape') {
+                e.preventDefault();
+                window.webkit.messageHandlers.popoverAction.postMessage('close');
             }
         }
+
+        document.addEventListener('keydown', function(e) {
+            if (e.key === 'Escape') {
+                e.preventDefault();
+                window.webkit.messageHandlers.popoverAction.postMessage('close');
+            }
+        });
+
+        let doubtSeq = 0;
 
         function submitDoubt() {
             const input = document.getElementById('doubtInput');
@@ -436,13 +581,16 @@ public class ExplanationPopoverWindow: NSPanel, WKNavigationDelegate, WKScriptMe
             if (!text) return;
             input.value = '';
 
+            doubtSeq += 1;
+            const doubtId = 'doubt_' + doubtSeq;
+
             // Append user doubt with spinner in thread
             const thread = document.getElementById('doubtThread');
             const item = document.createElement('div');
             item.className = 'doubt-item';
             item.innerHTML = `
                 <div class="doubt-query-bubble">❓ “${escapeHtml(text)}”</div>
-                <div id="doubtPending" class="doubt-reply-box"><span class="spinner-inline"></span> 💡 Thinking & analyzing...</div>
+                <div id="${doubtId}" class="doubt-reply-box doubt-pending"><span class="spinner-inline"></span> 💡 Thinking & analyzing...</div>
             `;
             thread.appendChild(item);
 
@@ -450,17 +598,33 @@ public class ExplanationPopoverWindow: NSPanel, WKNavigationDelegate, WKScriptMe
             const scroller = document.getElementById('scrollContainer');
             scroller.scrollTop = scroller.scrollHeight;
 
-            window.webkit.messageHandlers.popoverAction.postMessage('doubt:' + text);
+            window.webkit.messageHandlers.popoverAction.postMessage('doubt:' + doubtId + '|' + text);
         }
 
-        function appendDoubtReply(renderedHtml) {
-            const pending = document.getElementById('doubtPending');
+        function appendDoubtReply(doubtId, renderedHtml) {
+            let pending = doubtId ? document.getElementById(doubtId) : null;
+            if (!pending) {
+                const allPending = document.querySelectorAll('.doubt-pending');
+                if (allPending.length > 0) {
+                    pending = allPending[allPending.length - 1];
+                }
+            }
             if (pending) {
-                pending.removeAttribute('id');
+                pending.classList.remove('doubt-pending');
                 pending.innerHTML = renderedHtml;
+            } else {
+                const thread = document.getElementById('doubtThread');
+                if (thread) {
+                    const div = document.createElement('div');
+                    div.className = 'doubt-reply-box';
+                    div.innerHTML = renderedHtml;
+                    thread.appendChild(div);
+                }
             }
             const scroller = document.getElementById('scrollContainer');
-            scroller.scrollTop = scroller.scrollHeight;
+            if (scroller) {
+                scroller.scrollTop = scroller.scrollHeight;
+            }
         }
 
         function escapeHtml(str) {
@@ -475,11 +639,14 @@ public class ExplanationPopoverWindow: NSPanel, WKNavigationDelegate, WKScriptMe
         self.orderFrontRegardless()
     }
 
-    public func appendDoubtAnswer(replyMarkdown: String) {
+    public func appendDoubtAnswer(doubtId: String? = nil, replyMarkdown: String) {
         let rendered = renderSimpleMarkdown(replyMarkdown)
-        let escaped = escapeJs(rendered)
-        let js = "appendDoubtReply('\(escaped)');"
-        webView.evaluateJavaScript(js, completionHandler: nil)
+        let jsId = encodeJsString(doubtId ?? "")
+        let jsHtml = encodeJsString(rendered)
+        let js = "appendDoubtReply(\(jsId), \(jsHtml));"
+        DispatchQueue.main.async {
+            self.webView.evaluateJavaScript(js, completionHandler: nil)
+        }
     }
 
     public func showError(selection: String, errorMessage: String) {
@@ -537,13 +704,17 @@ public class ExplanationPopoverWindow: NSPanel, WKNavigationDelegate, WKScriptMe
             .replacingOccurrences(of: "'", with: "&#39;")
     }
 
-    private func escapeJs(_ str: String) -> String {
-        return str
-            .replacingOccurrences(of: "\\", with: "\\\\")
-            .replacingOccurrences(of: "'", with: "\\'")
-            .replacingOccurrences(of: "\"", with: "\\\"")
-            .replacingOccurrences(of: "\n", with: " ")
-            .replacingOccurrences(of: "\r", with: "")
+    private func encodeJsString(_ str: String) -> String {
+        if let data = try? JSONSerialization.data(withJSONObject: [str], options: []),
+           let jsonArray = String(data: data, encoding: .utf8),
+           jsonArray.count >= 2 {
+            // Strip outer '[' and ']' to obtain a valid JSON/JS string literal "..."
+            let inner = String(jsonArray.dropFirst().dropLast())
+            return inner
+                .replacingOccurrences(of: "\u{2028}", with: "\\u2028")
+                .replacingOccurrences(of: "\u{2029}", with: "\\u2029")
+        }
+        return "\"\""
     }
 
     private func renderSimpleMarkdown(_ text: String) -> String {
@@ -906,6 +1077,40 @@ public class ExplanationPopoverWindow: NSPanel, WKNavigationDelegate, WKScriptMe
             font-size: 12.5px;
             color: var(--text-secondary);
             font-weight: 500;
+        }
+        .ask-header-note {
+            font-size: 12px;
+            color: var(--text-secondary);
+            margin-bottom: 10px;
+        }
+        .ask-header-note strong {
+            color: var(--text-primary);
+        }
+        .quick-ask-input {
+            flex: 1;
+            width: 100%;
+            resize: none;
+            background: var(--quote-bg);
+            border: 1px solid var(--border-color);
+            color: var(--text-primary);
+            font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif;
+            font-size: 13.5px;
+            line-height: 1.5;
+            padding: 10px 12px;
+            border-radius: 8px;
+            outline: none;
+        }
+        .quick-ask-input:focus {
+            border-color: #0A84FF;
+            box-shadow: 0 0 0 2px rgba(10, 132, 255, 0.18);
+        }
+        .primary-ask-btn {
+            background: #0A84FF;
+            color: #FFFFFF;
+            border-color: #0A84FF;
+        }
+        .primary-ask-btn:hover {
+            background: #0070E0;
         }
         </style>
         """

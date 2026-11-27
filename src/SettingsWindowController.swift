@@ -10,8 +10,11 @@ public class SettingsWindowController: NSWindowController, NSTextViewDelegate {
 
     // UI Elements
     private var providerSegment: NSSegmentedControl!
+    private var keyLabel: NSTextField!
     private var apiKeyField: NSSecureTextField!
     private var apiKeyPlainField: NSTextField!
+    private var cliPathField: NSTextField!
+    private var cliBrowseButton: NSButton!
     private var isKeyRevealed: Bool = false
     private var revealKeyButton: NSButton!
     private var getKeyLinkButton: NSButton!
@@ -68,7 +71,7 @@ public class SettingsWindowController: NSWindowController, NSTextViewDelegate {
         self.config = config
 
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 630, height: 570),
+            contentRect: NSRect(x: 0, y: 0, width: 650, height: 575),
             styleMask: [.titled, .closable, .miniaturizable],
             backing: .buffered,
             defer: false
@@ -91,7 +94,7 @@ public class SettingsWindowController: NSWindowController, NSTextViewDelegate {
         contentView.autoresizingMask = [.width, .height]
         window.contentView = contentView
 
-        tabView = NSTabView(frame: NSRect(x: 20, y: 60, width: 590, height: 490))
+        tabView = NSTabView(frame: NSRect(x: 20, y: 60, width: 610, height: 495))
         tabView.autoresizingMask = [.width, .height]
 
         // 1. Tab AI & Models
@@ -121,7 +124,7 @@ public class SettingsWindowController: NSWindowController, NSTextViewDelegate {
         contentView.addSubview(tabView)
 
         // Bottom Save Button
-        let saveButton = NSButton(frame: NSRect(x: 480, y: 16, width: 130, height: 32))
+        let saveButton = NSButton(frame: NSRect(x: 500, y: 16, width: 130, height: 32))
         saveButton.title = "Save & Apply"
         saveButton.bezelStyle = .rounded
         saveButton.keyEquivalent = "\r"
@@ -129,7 +132,7 @@ public class SettingsWindowController: NSWindowController, NSTextViewDelegate {
         saveButton.action = #selector(saveAndClose)
         contentView.addSubview(saveButton)
 
-        let cancelBtn = NSButton(frame: NSRect(x: 380, y: 16, width: 90, height: 32))
+        let cancelBtn = NSButton(frame: NSRect(x: 400, y: 16, width: 90, height: 32))
         cancelBtn.title = "Cancel"
         cancelBtn.bezelStyle = .rounded
         cancelBtn.keyEquivalent = "\u{1b}" // Esc
@@ -143,36 +146,50 @@ public class SettingsWindowController: NSWindowController, NSTextViewDelegate {
         let view = NSView(frame: frame)
 
         // Provider Selector
-        let providerLabel = createLabel(text: "Select Primary Provider:", frame: NSRect(x: 20, y: 395, width: 220, height: 20), bold: true)
+        let providerLabel = createLabel(text: "Select Primary Provider (API or Installed CLI):", frame: NSRect(x: 20, y: 395, width: 380, height: 20), bold: true)
         view.addSubview(providerLabel)
 
-        providerSegment = NSSegmentedControl(labels: ["Gemini", "Groq", "OpenRouter", "OpenAI"], trackingMode: .selectOne, target: self, action: #selector(providerChanged))
-        providerSegment.frame = NSRect(x: 20, y: 360, width: 530, height: 30)
+        providerSegment = NSSegmentedControl(labels: ["Gemini", "Groq", "OpenRouter", "OpenAI", "OpenCode", "Antigravity"], trackingMode: .selectOne, target: self, action: #selector(providerChanged))
+        providerSegment.frame = NSRect(x: 15, y: 360, width: 575, height: 30)
         view.addSubview(providerSegment)
 
-        // API Key Section
-        let keyLabel = createLabel(text: "API Key for Selected Provider:", frame: NSRect(x: 20, y: 325, width: 250, height: 20), bold: true)
+        // API Key / CLI Path Section
+        keyLabel = createLabel(text: "API Key for Selected Provider:", frame: NSRect(x: 20, y: 325, width: 420, height: 20), bold: true)
         view.addSubview(keyLabel)
 
-        apiKeyField = NSSecureTextField(frame: NSRect(x: 20, y: 295, width: 440, height: 24))
+        apiKeyField = NSSecureTextField(frame: NSRect(x: 20, y: 295, width: 455, height: 24))
         apiKeyField.placeholderString = "Paste API key here..."
         view.addSubview(apiKeyField)
 
-        apiKeyPlainField = NSTextField(frame: NSRect(x: 20, y: 295, width: 440, height: 24))
+        apiKeyPlainField = NSTextField(frame: NSRect(x: 20, y: 295, width: 455, height: 24))
         apiKeyPlainField.placeholderString = "Paste API key here..."
         apiKeyPlainField.isHidden = true
         view.addSubview(apiKeyPlainField)
 
-        revealKeyButton = NSButton(frame: NSRect(x: 470, y: 293, width: 80, height: 26))
+        cliPathField = NSTextField(frame: NSRect(x: 20, y: 295, width: 455, height: 24))
+        cliPathField.placeholderString = "Auto-detect from PATH (or enter custom binary path)"
+        cliPathField.isHidden = true
+        view.addSubview(cliPathField)
+
+        revealKeyButton = NSButton(frame: NSRect(x: 485, y: 293, width: 85, height: 26))
         revealKeyButton.title = "👁️ Show"
         revealKeyButton.bezelStyle = .rounded
         revealKeyButton.target = self
         revealKeyButton.action = #selector(toggleKeyReveal)
         view.addSubview(revealKeyButton)
 
-        getKeyLinkButton = NSButton(frame: NSRect(x: 20, y: 265, width: 200, height: 20))
+        cliBrowseButton = NSButton(frame: NSRect(x: 485, y: 293, width: 85, height: 26))
+        cliBrowseButton.title = "📂 Browse"
+        cliBrowseButton.bezelStyle = .rounded
+        cliBrowseButton.target = self
+        cliBrowseButton.action = #selector(browseCLIPath)
+        cliBrowseButton.isHidden = true
+        view.addSubview(cliBrowseButton)
+
+        getKeyLinkButton = NSButton(frame: NSRect(x: 20, y: 265, width: 280, height: 20))
         getKeyLinkButton.title = "🔗 Get API Key from Provider →"
         getKeyLinkButton.isBordered = false
+        getKeyLinkButton.alignment = .left
         getKeyLinkButton.contentTintColor = NSColor.linkColor
         getKeyLinkButton.target = self
         getKeyLinkButton.action = #selector(openKeyPortal)
@@ -191,25 +208,26 @@ public class SettingsWindowController: NSWindowController, NSTextViewDelegate {
         progressIndicator.isDisplayedWhenStopped = false
         view.addSubview(progressIndicator)
 
-        statusLabel = createLabel(text: "", frame: NSRect(x: 300, y: 230, width: 250, height: 20), bold: false)
+        statusLabel = createLabel(text: "", frame: NSRect(x: 296, y: 230, width: 290, height: 20), bold: false)
         statusLabel.font = NSFont.systemFont(ofSize: 11)
+        statusLabel.lineBreakMode = .byTruncatingMiddle
         view.addSubview(statusLabel)
 
         // Active Model Dropdown
-        let modelLabel = createLabel(text: "Active Model for Selected Provider:", frame: NSRect(x: 20, y: 185, width: 300, height: 20), bold: true)
+        let modelLabel = createLabel(text: "Active Model for Selected Provider:", frame: NSRect(x: 20, y: 185, width: 320, height: 20), bold: true)
         view.addSubview(modelLabel)
 
-        modelPopUp = NSPopUpButton(frame: NSRect(x: 20, y: 155, width: 530, height: 26))
+        modelPopUp = NSPopUpButton(frame: NSRect(x: 20, y: 155, width: 550, height: 26))
         modelPopUp.target = self
         modelPopUp.action = #selector(modelSelected)
         view.addSubview(modelPopUp)
 
         // Fallback Section Box
-        let fallbackBox = NSBox(frame: NSRect(x: 20, y: 20, width: 530, height: 120))
+        let fallbackBox = NSBox(frame: NSRect(x: 20, y: 20, width: 550, height: 120))
         fallbackBox.title = "🛡️ Automatic Failover Fallback"
         let boxView = NSView(frame: fallbackBox.contentView!.bounds)
 
-        let fbDesc = createLabel(text: "If primary provider hits rate-limits or fails, PlatoReader fails over instantly without interrupting your reading.", frame: NSRect(x: 12, y: 65, width: 490, height: 30), bold: false)
+        let fbDesc = createLabel(text: "If primary provider hits rate-limits or fails, PlatoReader fails over instantly without interrupting your reading.", frame: NSRect(x: 12, y: 65, width: 510, height: 30), bold: false)
         fbDesc.font = NSFont.systemFont(ofSize: 11)
         boxView.addSubview(fbDesc)
 
@@ -217,7 +235,7 @@ public class SettingsWindowController: NSWindowController, NSTextViewDelegate {
         fbProviderLabel.font = NSFont.systemFont(ofSize: 11)
         boxView.addSubview(fbProviderLabel)
 
-        fallbackPopUp = NSPopUpButton(frame: NSRect(x: 145, y: 32, width: 160, height: 24))
+        fallbackPopUp = NSPopUpButton(frame: NSRect(x: 145, y: 32, width: 190, height: 24))
         fallbackPopUp.addItem(withTitle: "None (Disabled)")
         fallbackPopUp.lastItem?.representedObject = "none"
         for p in AIProvider.allCases {
@@ -232,7 +250,9 @@ public class SettingsWindowController: NSWindowController, NSTextViewDelegate {
         fbModelLabel.font = NSFont.systemFont(ofSize: 11)
         boxView.addSubview(fbModelLabel)
 
-        fallbackModelPopUp = NSPopUpButton(frame: NSRect(x: 145, y: 5, width: 340, height: 24))
+        fallbackModelPopUp = NSPopUpButton(frame: NSRect(x: 145, y: 5, width: 375, height: 24))
+        fallbackModelPopUp.target = self
+        fallbackModelPopUp.action = #selector(fallbackModelChanged)
         boxView.addSubview(fallbackModelPopUp)
 
         fallbackBox.contentView = boxView
@@ -502,18 +522,17 @@ public class SettingsWindowController: NSWindowController, NSTextViewDelegate {
 
     // MARK: - Load & Sync Values
     private func loadValues() {
-        switch config.selectedProvider {
-        case .gemini: providerSegment.selectedSegment = 0
-        case .groq: providerSegment.selectedSegment = 1
-        case .openrouter: providerSegment.selectedSegment = 2
-        case .openai: providerSegment.selectedSegment = 3
+        if let idx = AIProvider.allCases.firstIndex(of: config.selectedProvider) {
+            providerSegment.selectedSegment = idx
+        } else {
+            providerSegment.selectedSegment = 0
         }
 
         updateKeyAndLink()
         refreshModelList()
 
         // Fallback popup
-        let fbStr = config.fallbackProvider?.rawValue ?? "groq"
+        let fbStr = config.fallbackProvider?.rawValue ?? "none"
         for item in fallbackPopUp.itemArray {
             if (item.representedObject as? String) == fbStr {
                 fallbackPopUp.select(item)
@@ -718,24 +737,68 @@ public class SettingsWindowController: NSWindowController, NSTextViewDelegate {
     @objc private func providerChanged() {
         saveCurrentKeyToMemory()
 
-        switch providerSegment.selectedSegment {
-        case 0: config.selectedProvider = .gemini
-        case 1: config.selectedProvider = .groq
-        case 2: config.selectedProvider = .openrouter
-        case 3: config.selectedProvider = .openai
-        default: break
+        let idx = providerSegment.selectedSegment
+        if idx >= 0 && idx < AIProvider.allCases.count {
+            config.selectedProvider = AIProvider.allCases[idx]
         }
 
         updateKeyAndLink()
         refreshModelList()
-        statusLabel.stringValue = ""
     }
 
     private func updateKeyAndLink() {
-        let currentKey = config.apiKeys[config.selectedProvider.rawValue] ?? ""
-        apiKeyField.stringValue = currentKey
-        apiKeyPlainField.stringValue = currentKey
-        getKeyLinkButton.title = "🔗 Get \(config.selectedProvider.displayName) API Key →"
+        let provider = config.selectedProvider
+        if provider.isCLIProvider {
+            keyLabel.stringValue = "CLI Executable Path (Leave blank for auto-detect):"
+            apiKeyField.isHidden = true
+            apiKeyPlainField.isHidden = true
+            revealKeyButton.isHidden = true
+            cliPathField.isHidden = false
+            cliBrowseButton.isHidden = false
+
+            let savedPath = config.cliPaths[provider.rawValue] ?? ""
+            cliPathField.stringValue = savedPath
+            if let resolved = config.resolveCLIPath(for: provider) {
+                cliPathField.placeholderString = "Auto-detected: \(resolved)"
+                statusLabel.stringValue = "🟢 Detected: \(resolved)"
+                statusLabel.textColor = NSColor.systemGreen
+            } else {
+                let exe = provider.cliExecutableName ?? provider.rawValue
+                cliPathField.placeholderString = "Enter full path to '\(exe)' binary..."
+                statusLabel.stringValue = "🔴 '\(exe)' not found in PATH"
+                statusLabel.textColor = NSColor.systemRed
+            }
+
+            getKeyLinkButton.title = "📖 View \(provider.displayName) Docs →"
+            testFetchButton.title = "⚡ Detect CLI & Fetch Models"
+        } else {
+            keyLabel.stringValue = "API Key for Selected Provider:"
+            cliPathField.isHidden = true
+            cliBrowseButton.isHidden = true
+            revealKeyButton.isHidden = false
+            apiKeyField.isHidden = isKeyRevealed
+            apiKeyPlainField.isHidden = !isKeyRevealed
+
+            let currentKey = config.apiKeys[provider.rawValue] ?? ""
+            apiKeyField.stringValue = currentKey
+            apiKeyPlainField.stringValue = currentKey
+            getKeyLinkButton.title = "🔗 Get \(provider.displayName) API Key →"
+            testFetchButton.title = "⚡ Test Key & Fetch Models"
+            statusLabel.stringValue = ""
+        }
+    }
+
+    @objc private func browseCLIPath() {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        panel.title = "Select \(config.selectedProvider.displayName) Binary"
+        if panel.runModal() == .OK, let url = panel.url {
+            cliPathField.stringValue = url.path
+            saveCurrentKeyToMemory()
+            updateKeyAndLink()
+        }
     }
 
     @objc private func toggleKeyReveal() {
@@ -760,15 +823,34 @@ public class SettingsWindowController: NSWindowController, NSTextViewDelegate {
     }
 
     private func saveCurrentKeyToMemory() {
-        let currentVal = isKeyRevealed ? apiKeyPlainField.stringValue : apiKeyField.stringValue
-        config.apiKeys[config.selectedProvider.rawValue] = currentVal.trimmingCharacters(in: .whitespacesAndNewlines)
+        let provider = config.selectedProvider
+        if provider.isCLIProvider {
+            let trimmed = cliPathField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+            if trimmed.isEmpty {
+                config.cliPaths.removeValue(forKey: provider.rawValue)
+            } else {
+                config.cliPaths[provider.rawValue] = trimmed
+            }
+        } else {
+            let currentVal = isKeyRevealed ? apiKeyPlainField.stringValue : apiKeyField.stringValue
+            config.apiKeys[provider.rawValue] = currentVal.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
     }
 
     @objc private func testAndFetchModels() {
         saveCurrentKeyToMemory()
+        let provider = config.selectedProvider
+        let customPath = config.cliPaths[provider.rawValue]
         let key = config.currentKey()
 
-        guard !key.isEmpty else {
+        if provider.isCLIProvider {
+            guard config.resolveCLIPath(for: provider, overridePath: customPath) != nil else {
+                let exe = provider.cliExecutableName ?? provider.rawValue
+                statusLabel.stringValue = "⚠️ '\(exe)' CLI not found."
+                statusLabel.textColor = NSColor.systemRed
+                return
+            }
+        } else if key.isEmpty {
             statusLabel.stringValue = "⚠️ Please enter an API key first."
             statusLabel.textColor = NSColor.systemRed
             return
@@ -776,12 +858,10 @@ public class SettingsWindowController: NSWindowController, NSTextViewDelegate {
 
         testFetchButton.isEnabled = false
         progressIndicator.startAnimation(nil)
-        statusLabel.stringValue = "Fetching available models..."
+        statusLabel.stringValue = provider.isCLIProvider ? "Inspecting \(provider.shortDisplayName) models..." : "Fetching available models..."
         statusLabel.textColor = NSColor.secondaryLabelColor
 
-        let provider = config.selectedProvider
-
-        AIService.shared.fetchModels(provider: provider, apiKey: key) { [weak self] result in
+        AIService.shared.fetchModels(provider: provider, apiKey: key, cliPath: customPath) { [weak self] result in
             guard let self = self else { return }
             self.testFetchButton.isEnabled = true
             self.progressIndicator.stopAnimation(nil)
@@ -791,7 +871,8 @@ public class SettingsWindowController: NSWindowController, NSTextViewDelegate {
                 self.config.cachedModels[provider.rawValue] = models
                 self.refreshModelList()
                 self.refreshFallbackModelList()
-                self.statusLabel.stringValue = "✅ Key valid! Found \(models.count) models."
+                let prefix = provider.isCLIProvider ? "✅ CLI ready!" : "✅ Key valid!"
+                self.statusLabel.stringValue = "\(prefix) Found \(models.count) models."
                 self.statusLabel.textColor = NSColor.systemGreen
                 self.config.save()
             case .failure(let error):
@@ -842,10 +923,18 @@ public class SettingsWindowController: NSWindowController, NSTextViewDelegate {
         guard let item = fallbackPopUp.selectedItem, let repr = item.representedObject as? String else { return }
         if repr == "none" {
             config.fallbackProvider = nil
+            config.fallbackModel = nil
         } else if let p = AIProvider(rawValue: repr) {
             config.fallbackProvider = p
+            config.fallbackModel = config.selectedModels[p.rawValue] ?? p.defaultModel
         }
         refreshFallbackModelList()
+    }
+
+    @objc private func fallbackModelChanged() {
+        if let id = fallbackModelPopUp.selectedItem?.representedObject as? String {
+            config.fallbackModel = id
+        }
     }
 
     @objc private func presetChanged() {
@@ -917,6 +1006,11 @@ public class SettingsWindowController: NSWindowController, NSTextViewDelegate {
     @objc private func saveAndClose() {
         stopRecording()
         saveCurrentKeyToMemory()
+
+        if config.fallbackProvider != nil,
+           let fbModelId = fallbackModelPopUp.selectedItem?.representedObject as? String {
+            config.fallbackModel = fbModelId
+        }
 
         config.enableFloatingPill = (enablePillCheckbox.state == .on)
         config.enablePageContext = (enableContextCheckbox.state == .on)

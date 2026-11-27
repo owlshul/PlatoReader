@@ -10,11 +10,22 @@ class AppDelegate: NSObject, NSApplicationDelegate, FloatingPillDelegate, Explan
     private var hotkeyManager: HotkeyManager!
     private var multitouchManager: MultitouchManager!
 
+    private enum ExplanationMode {
+        case pdfContext
+        case universal
+        case quickAsk
+    }
+
     private var lastSelection: SelectionInfo?
     private var lastSelectionTime: TimeInterval = 0
     private var lastContextResult: PDFContextResult?
-    private var lastExplanationText: String = ""
-    private var lastPageContextText: String? = nil
+
+    // Dedicated active popover state (never cleared by didDeselect / handleAppSwitch)
+    private var activeSelection: SelectionInfo?
+    private var activeExplanationText: String = ""
+    private var activePageContextText: String? = nil
+    private var activeDoubtHistory: [(question: String, answer: String)] = []
+    private var activeMode: ExplanationMode = .universal
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Run as an accessory app with floating panel support across all applications
@@ -109,16 +120,35 @@ class AppDelegate: NSObject, NSApplicationDelegate, FloatingPillDelegate, Explan
         titleItem.isEnabled = false
         menu.addItem(titleItem)
 
-        let modelTitle = "Model: \(config.currentModel())"
+        let modelTitle = "Provider: \(config.selectedProvider.shortDisplayName) • \(config.currentModel())"
         let modelItem = NSMenuItem(title: modelTitle, action: nil, keyEquivalent: "")
         modelItem.isEnabled = false
         menu.addItem(modelItem)
+
+        // Quick Provider Switcher submenu
+        let switchProviderItem = NSMenuItem(title: "Switch AI Provider", action: nil, keyEquivalent: "")
+        let providerSubmenu = NSMenu()
+        for provider in AIProvider.allCases {
+            let ready = config.isProviderReady(provider)
+            let suffix = ready ? (provider.isCLIProvider ? " [CLI]" : "") : (provider.isCLIProvider ? " (Not installed)" : " (No API key)")
+            let item = NSMenuItem(title: "\(provider.displayName)\(suffix)", action: #selector(switchProviderFromMenu(_:)), keyEquivalent: "")
+            item.target = self
+            item.representedObject = provider.rawValue
+            item.state = (provider == config.selectedProvider) ? .on : .off
+            providerSubmenu.addItem(item)
+        }
+        switchProviderItem.submenu = providerSubmenu
+        menu.addItem(switchProviderItem)
 
         menu.addItem(NSMenuItem.separator())
 
         let contextShortStr = config.contextShortcut.displayString.components(separatedBy: " (").first ?? "⌥ Space"
         let universalShortStr = config.universalShortcut.displayString.components(separatedBy: " (").first ?? "⌥⇧ Space"
         let clipShortStr = config.clipboardShortcut.displayString.components(separatedBy: " (").first ?? "⌥⇧ C"
+
+        let askAnythingItem = NSMenuItem(title: "Ask Anything (Quick Input Box)...", action: #selector(triggerAskManually), keyEquivalent: "")
+        askAnythingItem.target = self
+        menu.addItem(askAnythingItem)
 
         let explainItem = NSMenuItem(title: "Explain Selection (PDF Context) [\(contextShortStr)]", action: #selector(triggerExplainManually), keyEquivalent: "")
         explainItem.target = self
@@ -213,7 +243,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, FloatingPillDelegate, Explan
         lastSelection = nil
     }
 
-    @objc private func handleAppSwitch() {
+    @objc private func handleAppSwitch(_ notification: Notification) {
+        if let app = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication,
+           app.bundleIdentifier == Bundle.main.bundleIdentifier {
+            return
+        }
         floatingPill.hide()
         lastSelection = nil
     }
@@ -223,7 +257,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, FloatingPillDelegate, Explan
     }
 
     func didTriggerFourFingerHotkey() {
-        triggerFourFingerExplain()
+        triggerFourFingerExplain(fromGesture: false)
     }
 
     func didTriggerClipboardHotkey() {
@@ -235,17 +269,56 @@ class AppDelegate: NSObject, NSApplicationDelegate, FloatingPillDelegate, Explan
     }
 
     @objc private func triggerFourFingerManually() {
-        triggerFourFingerExplain()
+        triggerFourFingerExplain(fromGesture: false)
     }
 
     @objc private func triggerClipboardManually() {
         triggerClipboardExplain()
     }
 
+    @objc private func triggerAskManually() {
+        openBlankInputBox()
+    }
+
+    @objc private func switchProviderFromMenu(_ sender: NSMenuItem) {
+        guard let raw = sender.representedObject as? String,
+              let provider = AIProvider(rawValue: raw) else { return }
+        config.selectedProvider = provider
+        config.save()
+        updateStatusMenu()
+        if !config.isProviderReady(provider) {
+            openSettings()
+        }
+    }
+
     // MARK: - MultitouchManagerDelegate
     func didDetectFourFingerTap() {
         guard config.enableFourFingerTap else { return }
-        triggerFourFingerExplain()
+        triggerFourFingerExplain(fromGesture: true)
+    }
+
+    private func currentMouseBounds() -> CGRect {
+        let mouseLoc = NSEvent.mouseLocation
+        if let primaryScreen = NSScreen.screens.first {
+            let flippedY = primaryScreen.frame.height - mouseLoc.y
+            return CGRect(x: mouseLoc.x - 20, y: flippedY - 10, width: 40, height: 20)
+        }
+        return CGRect(x: mouseLoc.x, y: mouseLoc.y, width: 40, height: 20)
+    }
+
+    private func openBlankInputBox(initialText: String? = nil) {
+        floatingPill.hide()
+        guard config.hasAnyConfiguredProvider() else {
+            openSettings()
+            return
+        }
+        let modelDisplay = "\(config.selectedProvider.shortDisplayName) • \(config.currentModel())"
+        popoverWindow.showAskInput(
+            modelName: modelDisplay,
+            providerName: config.selectedProvider.shortDisplayName,
+            near: currentMouseBounds(),
+            initialText: initialText
+        )
     }
 
     private func triggerNormalExplain() {
@@ -259,17 +332,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, FloatingPillDelegate, Explan
                 executeFourFingerExplanation(for: sel)
             }
         } else {
-            let shortcutHint = config.contextShortcut.displayString.components(separatedBy: " (").first ?? "⌥ Space"
-            let alert = NSAlert()
-            alert.messageText = "No Text Highlighted"
-            alert.informativeText = "Highlight a sentence in Preview or any document, then press \(shortcutHint)."
-            alert.alertStyle = .informational
-            alert.addButton(withTitle: "OK")
-            alert.runModal()
+            openBlankInputBox()
         }
     }
 
-    private func triggerFourFingerExplain() {
+    private func triggerFourFingerExplain(fromGesture: Bool = false) {
         floatingPill.hide()
         let now = Date().timeIntervalSince1970
         let freshSelection = (now - lastSelectionTime < 3.0) ? lastSelection : nil
@@ -278,22 +345,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, FloatingPillDelegate, Explan
             executeFourFingerExplanation(for: sel)
         } else if let fresh = freshSelection {
             executeFourFingerExplanation(for: fresh)
-        } else {
-            let shortcutHint = config.universalShortcut.displayString.components(separatedBy: " (").first ?? "⌥⇧ Space"
-            let clipHint = config.clipboardShortcut.displayString.components(separatedBy: " (").first ?? "⌥⇧ C"
-            let gestureName: String
-            switch config.fingerTapMode {
-            case .threeFingers: gestureName = "tap 3 fingers"
-            case .fourFingers: gestureName = "tap 4 fingers"
-            case .threeOrFour: gestureName = "tap 3 or 4 fingers"
-            case .disabled: gestureName = "press \(shortcutHint)"
-            }
-            let alert = NSAlert()
-            alert.messageText = "No Text Highlighted"
-            alert.informativeText = "Highlight any word or sentence in Safari, Chrome, or any application, then \(gestureName) or press \(shortcutHint).\n\n💡 Tip: You can also copy text (⌘C) and press \(clipHint) to explain it instantly!"
-            alert.alertStyle = .informational
-            alert.addButton(withTitle: "OK")
-            alert.runModal()
+        } else if !fromGesture {
+            openBlankInputBox()
         }
     }
 
@@ -301,29 +354,13 @@ class AppDelegate: NSObject, NSApplicationDelegate, FloatingPillDelegate, Explan
     private func triggerClipboardExplain() {
         floatingPill.hide()
         guard let copiedText = NSPasteboard.general.string(forType: .string)?.trimmingCharacters(in: .whitespacesAndNewlines), !copiedText.isEmpty else {
-            let clipHint = config.clipboardShortcut.displayString.components(separatedBy: " (").first ?? "⌥⇧ C"
-            let alert = NSAlert()
-            alert.messageText = "No Text in Clipboard"
-            alert.informativeText = "Copy any sentence or passage to your clipboard first (⌘C), then press \(clipHint) to get an instant explanation."
-            alert.alertStyle = .informational
-            alert.addButton(withTitle: "OK")
-            alert.runModal()
+            openBlankInputBox()
             return
-        }
-
-        // Calculate bounds near current mouse cursor
-        let mouseLoc = NSEvent.mouseLocation
-        let bounds: CGRect
-        if let primaryScreen = NSScreen.screens.first {
-            let flippedY = primaryScreen.frame.height - mouseLoc.y
-            bounds = CGRect(x: mouseLoc.x - 20, y: flippedY - 10, width: 40, height: 20)
-        } else {
-            bounds = CGRect(x: mouseLoc.x, y: mouseLoc.y, width: 40, height: 20)
         }
 
         let selectionInfo = SelectionInfo(
             text: copiedText,
-            bounds: bounds,
+            bounds: currentMouseBounds(),
             documentPath: nil,
             windowTitle: nil,
             appName: "Copied Text",
@@ -346,14 +383,16 @@ class AppDelegate: NSObject, NSApplicationDelegate, FloatingPillDelegate, Explan
     // MARK: - Explanation Execution Flow for Preview / PDF (Page Context Extraction)
     private func executeExplanation(for selection: SelectionInfo) {
         self.lastSelection = selection
+        self.activeSelection = selection
+        self.activeMode = .pdfContext
+        self.activeDoubtHistory = []
 
-        let key = config.currentKey().isEmpty ? (config.fallbackKey() ?? "") : config.currentKey()
-        guard !key.isEmpty else {
+        guard config.hasAnyConfiguredProvider() else {
             openSettings()
             return
         }
 
-        let modelName = config.currentModel()
+        let modelName = "\(config.selectedProvider.shortDisplayName) • \(config.currentModel())"
         let initialDoc = (selection.documentPath as NSString?)?.lastPathComponent ?? "Document"
 
         // 1. Show the window IMMEDIATELY on frame 0 (Zero delay feedback!)
@@ -407,8 +446,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, FloatingPillDelegate, Explan
                 guard let self = self else { return }
                 switch result {
                 case .success(let res):
-                    self.lastExplanationText = res.text
-                    self.lastPageContextText = pageContextText
+                    self.activeExplanationText = res.text
+                    self.activePageContextText = pageContextText
                     var activeModelDisplay = modelName
                     if let fb = res.fallbackUsed {
                         activeModelDisplay = "\(fb) [Fallback]"
@@ -434,37 +473,31 @@ class AppDelegate: NSObject, NSApplicationDelegate, FloatingPillDelegate, Explan
     // MARK: - Four-Finger Universal Web Lookup (Strictly Highlighted Text Only)
     private func executeFourFingerExplanation(for selection: SelectionInfo) {
         self.lastSelection = selection
+        self.activeSelection = selection
+        self.activeMode = .universal
+        self.activeDoubtHistory = []
 
-        let key = config.currentKey().isEmpty ? (config.fallbackKey() ?? "") : config.currentKey()
-        guard !key.isEmpty else {
+        guard config.hasAnyConfiguredProvider() else {
             openSettings()
             return
         }
 
-        let modelName = config.currentModel()
+        let modelName = "\(config.selectedProvider.shortDisplayName) • \(config.currentModel())"
         let appDisplayName = selection.appName.isEmpty ? "Browser / Application" : selection.appName
 
         // 1. Show popover immediately (0ms feedback) near the mouse/selection
         popoverWindow.showLoading(
             selection: selection.text,
             docName: appDisplayName,
-            pageDisplay: "🖐️ 4-Finger Meaning",
+            pageDisplay: "🖐️ Universal Meaning",
             modelName: modelName,
             near: selection.bounds,
-            initialStatus: "⚡ Explaining with AI..."
+            initialStatus: "⚡ Explaining with \(modelName)..."
         )
 
-        // 2. Perform four-finger web explanation asynchronously in background
+        // 2. Perform universal explanation asynchronously in background
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             guard let self = self else { return }
-
-            DispatchQueue.main.async {
-                self.popoverWindow.updateProgress(
-                    status: "⚡ Explaining with \(modelName)...",
-                    docName: appDisplayName,
-                    pageDisplay: "🖐️ 4-Finger Meaning"
-                )
-            }
 
             AIService.shared.explainFourFingerSelection(
                 selection: selection.text,
@@ -474,8 +507,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, FloatingPillDelegate, Explan
                 guard let self = self else { return }
                 switch result {
                 case .success(let res):
-                    self.lastExplanationText = res.text
-                    self.lastPageContextText = nil // Strictly no window context stored
+                    self.activeExplanationText = res.text
+                    self.activePageContextText = nil // Strictly no window context stored
                     var activeModelDisplay = modelName
                     if let fb = res.fallbackUsed {
                         activeModelDisplay = "\(fb) [Fallback]"
@@ -483,7 +516,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, FloatingPillDelegate, Explan
                     self.popoverWindow.showExplanation(
                         selection: selection.text,
                         docName: appDisplayName,
-                        pageDisplay: "🖐️ 4-Finger Meaning",
+                        pageDisplay: "🖐️ Universal Meaning",
                         modelName: activeModelDisplay,
                         pageContext: nil,
                         explanationMarkdown: res.text
@@ -498,36 +531,113 @@ class AppDelegate: NSObject, NSApplicationDelegate, FloatingPillDelegate, Explan
         }
     }
 
+    // MARK: - Direct Quick Ask (From Blank Input Box)
+    private func executeQuickQuestion(_ question: String) {
+        let sel = SelectionInfo(
+            text: question,
+            bounds: currentMouseBounds(),
+            documentPath: nil,
+            windowTitle: nil,
+            appName: "Quick Ask",
+            appBundleId: nil
+        )
+        self.activeSelection = sel
+        self.activeMode = .quickAsk
+        self.activeDoubtHistory = []
+
+        guard config.hasAnyConfiguredProvider() else {
+            openSettings()
+            return
+        }
+
+        let modelName = "\(config.selectedProvider.shortDisplayName) • \(config.currentModel())"
+        popoverWindow.showLoading(
+            selection: question,
+            docName: "Quick Ask",
+            pageDisplay: "💬 Direct Prompt",
+            modelName: modelName,
+            near: sel.bounds,
+            initialStatus: "⚡ Thinking with \(modelName)..."
+        )
+
+        AIService.shared.askDirectQuestion(
+            question: question,
+            config: self.config
+        ) { [weak self] result in
+            guard let self = self else { return }
+            switch result {
+            case .success(let res):
+                self.activeExplanationText = res.text
+                self.activePageContextText = nil
+                var activeModelDisplay = modelName
+                if let fb = res.fallbackUsed {
+                    activeModelDisplay = "\(fb) [Fallback]"
+                }
+                self.popoverWindow.showExplanation(
+                    selection: question,
+                    docName: "Quick Ask",
+                    pageDisplay: "💬 Direct Prompt",
+                    modelName: activeModelDisplay,
+                    pageContext: nil,
+                    explanationMarkdown: res.text
+                )
+            case .failure(let error):
+                self.popoverWindow.showError(
+                    selection: question,
+                    errorMessage: error.localizedDescription
+                )
+            }
+        }
+    }
+
     // MARK: - ExplanationPopoverDelegate
     func didRequestRegenerate(simpler: Bool) {
-        guard let sel = lastSelection else { return }
-        if sel.appBundleId == "com.apple.Preview" {
+        guard let sel = activeSelection ?? lastSelection else { return }
+        switch activeMode {
+        case .pdfContext:
             let originalPreset = config.activePresetId
             config.activePresetId = simpler ? "plain_english" : "concise_context"
             executeExplanation(for: sel)
             config.activePresetId = originalPreset
-        } else {
+        case .universal:
             executeFourFingerExplanation(for: sel)
+        case .quickAsk:
+            executeQuickQuestion(sel.text)
         }
     }
 
-    func didSubmitDoubt(doubtText: String) {
-        guard let sel = lastSelection else { return }
+    func didSubmitQuickQuestion(questionText: String) {
+        executeQuickQuestion(questionText)
+    }
+
+    func didSubmitDoubt(doubtId: String, doubtText: String) {
+        guard let sel = activeSelection ?? lastSelection else {
+            popoverWindow.appendDoubtAnswer(
+                doubtId: doubtId,
+                replyMarkdown: "⚠️ No active passage context found. Please trigger an explanation first and ask again."
+            )
+            return
+        }
         let docName = (sel.documentPath as NSString?)?.lastPathComponent ?? sel.appName
         AIService.shared.answerDoubt(
             selection: sel.text,
             docName: docName,
-            pageContext: lastPageContextText,
-            previousExplanation: lastExplanationText,
+            pageContext: activePageContextText,
+            previousExplanation: activeExplanationText,
+            doubtHistory: activeDoubtHistory,
             doubt: doubtText,
             config: self.config
         ) { [weak self] result in
             guard let self = self else { return }
             switch result {
             case .success(let answer):
-                self.popoverWindow.appendDoubtAnswer(replyMarkdown: answer)
+                self.activeDoubtHistory.append((question: doubtText, answer: answer))
+                self.popoverWindow.appendDoubtAnswer(doubtId: doubtId, replyMarkdown: answer)
             case .failure(let error):
-                self.popoverWindow.appendDoubtAnswer(replyMarkdown: "⚠️ Could not answer doubt: " + error.localizedDescription)
+                self.popoverWindow.appendDoubtAnswer(
+                    doubtId: doubtId,
+                    replyMarkdown: "⚠️ Could not answer doubt: " + error.localizedDescription
+                )
             }
         }
     }
