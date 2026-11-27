@@ -12,7 +12,7 @@ mkdir -p "$TMP_DIR"
 mkdir -p "$APP_DIR/Contents/MacOS"
 mkdir -p "$APP_DIR/Contents/Resources"
 
-echo "🏛️ Compiling PlatoReader native Swift binary..."
+echo "Compiling PlatoReader native Swift binary..."
 
 TMPDIR="$TMP_DIR" swiftc \
   -O \
@@ -25,6 +25,7 @@ TMPDIR="$TMP_DIR" swiftc \
   -framework ApplicationServices \
   -framework Vision \
   "$SRC_DIR/Config.swift" \
+  "$SRC_DIR/UpdateManager.swift" \
   "$SRC_DIR/WebSearchHelper.swift" \
   "$SRC_DIR/AIService.swift" \
   "$SRC_DIR/AccessibilityHelper.swift" \
@@ -38,4 +39,19 @@ TMPDIR="$TMP_DIR" swiftc \
   -o "$APP_DIR/Contents/MacOS/PlatoReader"
 
 chmod +x "$APP_DIR/Contents/MacOS/PlatoReader"
-echo "✅ Successfully built PlatoReader.app!"
+
+# Sign with a persistent certificate if available so macOS Accessibility permissions survive updates.
+SIGN_IDENTITY="${CODESIGN_IDENTITY:-}"
+if [ -z "$SIGN_IDENTITY" ]; then
+  SIGN_IDENTITY=$(security find-identity -v -p codesigning 2>/dev/null | grep -E '"(Developer ID Application|Apple Development|PlatoReader)' | head -n 1 | sed -E 's/.*"([^"]+)".*/\1/' || true)
+fi
+
+if [ -n "$SIGN_IDENTITY" ]; then
+  echo "Signing PlatoReader.app with identity: $SIGN_IDENTITY"
+  codesign --force --deep --sign "$SIGN_IDENTITY" "$APP_DIR"
+else
+  echo "Signing PlatoReader.app with ad-hoc signature (note: create a persistent Code Signing cert to preserve Accessibility permission across updates)."
+  codesign --force --deep --sign - "$APP_DIR"
+fi
+
+echo "Successfully built PlatoReader.app!"

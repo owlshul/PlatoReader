@@ -5,3 +5,4 @@ build/
 *.o
 *.swp
 *.log
+dist/

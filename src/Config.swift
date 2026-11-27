@@ -230,6 +230,7 @@ public class AppConfig: Codable {
     public var enablePageContext: Bool
     public var pillDelayMs: Int
     public var hotkeyString: String
+    public var updateFeedURL: String?
 
     // Trackpad Gesture & Customizable Shortcut Settings
     public var fingerTapMode: GestureFingerMode
@@ -335,7 +336,7 @@ public class AppConfig: Codable {
     enum CodingKeys: String, CodingKey {
         case selectedProvider, fallbackProvider, fallbackModel, apiKeys, cliPaths, selectedModels, cachedModels
         case activePresetId, customSystemPrompt, customPromptTemplate
-        case enableFloatingPill, enablePageContext, pillDelayMs, hotkeyString
+        case enableFloatingPill, enablePageContext, pillDelayMs, hotkeyString, updateFeedURL
         case fingerTapMode, universalShortcut, contextShortcut, clipboardShortcut
         case enableFourFingerTap, enableInternetSearchForFourFinger, fourFingerSystemPrompt, fourFingerPromptTemplate, fourFingerHotkeyString
     }
@@ -410,6 +411,7 @@ public class AppConfig: Codable {
         self.enablePageContext = true
         self.pillDelayMs = 300
         self.hotkeyString = ShortcutConfig.defaultContext.displayString
+        self.updateFeedURL = nil
 
         // Defaults for Gesture & Customizable Shortcuts
         self.fingerTapMode = .fourFingers
@@ -453,6 +455,7 @@ public class AppConfig: Codable {
         self.enablePageContext = try container.decodeIfPresent(Bool.self, forKey: .enablePageContext) ?? true
         self.pillDelayMs = try container.decodeIfPresent(Int.self, forKey: .pillDelayMs) ?? 300
         self.hotkeyString = try container.decodeIfPresent(String.self, forKey: .hotkeyString) ?? ShortcutConfig.defaultContext.displayString
+        self.updateFeedURL = try container.decodeIfPresent(String.self, forKey: .updateFeedURL)
 
         // Decode fingerTapMode with graceful migration from enableFourFingerTap
         if let mode = try container.decodeIfPresent(GestureFingerMode.self, forKey: .fingerTapMode) {
@@ -506,6 +509,7 @@ public class AppConfig: Codable {
         try container.encode(enablePageContext, forKey: .enablePageContext)
         try container.encode(pillDelayMs, forKey: .pillDelayMs)
         try container.encode(contextShortcut.displayString, forKey: .hotkeyString)
+        try container.encodeIfPresent(updateFeedURL, forKey: .updateFeedURL)
         try container.encode(fingerTapMode, forKey: .fingerTapMode)
         try container.encode(universalShortcut, forKey: .universalShortcut)
         try container.encode(contextShortcut, forKey: .contextShortcut)
@@ -590,6 +594,13 @@ public class AppConfig: Codable {
     public func resetFourFingerPromptToDefault() {
         self.fourFingerSystemPrompt = AppConfig.defaultFourFingerSystemPrompt
         self.fourFingerPromptTemplate = AppConfig.defaultFourFingerPromptTemplate
+    }
+
+    public static let defaultUpdateFeedURL = "https://api.github.com/repos/owlshul/PlatoReader/releases/latest"
+
+    public func effectiveUpdateFeedURL() -> String {
+        let trimmed = updateFeedURL?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return trimmed.isEmpty ? AppConfig.defaultUpdateFeedURL : trimmed
     }
 
     private static var detectedCLICache: [String: String] = [:]

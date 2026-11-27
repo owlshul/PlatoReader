@@ -211,16 +211,25 @@ public class SettingsWindowController: NSWindowController, NSTextViewDelegate {
         sep2.boxType = .separator
         view.addSubview(sep2)
 
-        permissionStatusLabel = createLabel(text: "", frame: NSRect(x: 18, y: 20, width: 320, height: 22), bold: false)
+        permissionStatusLabel = createLabel(text: "", frame: NSRect(x: 18, y: 28, width: 320, height: 20), bold: false)
         permissionStatusLabel.font = NSFont.systemFont(ofSize: 12)
         view.addSubview(permissionStatusLabel)
 
-        openPermissionButton = NSButton(frame: NSRect(x: 365, y: 16, width: 160, height: 26))
+        openPermissionButton = NSButton(frame: NSRect(x: 365, y: 24, width: 160, height: 26))
         openPermissionButton.title = "Accessibility Settings"
         openPermissionButton.bezelStyle = .rounded
         openPermissionButton.target = self
         openPermissionButton.action = #selector(openAccessibilitySettings)
         view.addSubview(openPermissionButton)
+
+        let versionLabel = createLabel(text: "Version \(UpdateManager.shared.currentVersion)", frame: NSRect(x: 18, y: 4, width: 220, height: 18), bold: false)
+        versionLabel.font = NSFont.systemFont(ofSize: 11)
+        versionLabel.textColor = NSColor.secondaryLabelColor
+        view.addSubview(versionLabel)
+
+        let checkUpdateBtn = createSmallButton(title: "Check for Updates", frame: NSRect(x: 365, y: 0, width: 160, height: 24), action: #selector(checkForUpdatesFromSettings))
+        checkUpdateBtn.font = NSFont.systemFont(ofSize: 11.5)
+        view.addSubview(checkUpdateBtn)
 
         return view
     }
@@ -978,6 +987,10 @@ public class SettingsWindowController: NSWindowController, NSTextViewDelegate {
                 fallbackModelPopUp.selectItem(at: 0)
             }
         }
+    }
+
+    @objc private func checkForUpdatesFromSettings() {
+        UpdateManager.shared.checkForUpdates(config: config, silentIfUpToDate: false)
     }
 
     @objc private func openAccessibilitySettings() {

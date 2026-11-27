@@ -68,9 +68,12 @@ class AppDelegate: NSObject, NSApplicationDelegate, FloatingPillDelegate, Explan
             object: nil
         )
 
-        // Check Permissions and First Run
+        // Check Permissions and Updates on launch
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
             self.checkInitialStatus()
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) {
+            UpdateManager.shared.checkInBackgroundIfNeeded(config: self.config)
         }
     }
 
@@ -154,6 +157,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, FloatingPillDelegate, Explan
         settingsItem.target = self
         menu.addItem(settingsItem)
 
+        let updateItem = NSMenuItem(title: "Check for Updates...", action: #selector(checkForUpdatesClicked), keyEquivalent: "")
+        updateItem.target = self
+        menu.addItem(updateItem)
+
         menu.addItem(NSMenuItem.separator())
 
         let quitItem = NSMenuItem(title: "Quit PlatoReader", action: #selector(quitApp), keyEquivalent: "q")
@@ -172,7 +179,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, FloatingPillDelegate, Explan
     private func showPermissionAlert() {
         let alert = NSAlert()
         alert.messageText = "Accessibility Permission Required"
-        alert.informativeText = "PlatoReader needs Accessibility access to detect text you select in Preview, browsers, and other apps.\n\nPlease enable PlatoReader in System Settings → Privacy & Security → Accessibility."
+        alert.informativeText = "PlatoReader needs Accessibility access to detect selected text.\n\nEnable PlatoReader in System Settings → Privacy & Security → Accessibility.\n\nIf PlatoReader is already ticked from an older unsigned version, select it, click '−' to remove it, then add PlatoReader again."
         alert.alertStyle = .warning
         alert.addButton(withTitle: "Open System Settings")
         alert.addButton(withTitle: "Later")
@@ -184,6 +191,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, FloatingPillDelegate, Explan
             }
             AccessibilityHelper.requestAccessibilityPermission()
         }
+    }
+
+    @objc private func checkForUpdatesClicked() {
+        UpdateManager.shared.checkForUpdates(config: config, silentIfUpToDate: false)
     }
 
     @objc private func checkPermissionsDialog() {
